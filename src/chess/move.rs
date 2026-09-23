@@ -1,14 +1,37 @@
 use crate::chess::{
-    board::{BoardPosition, BoardPositionOffset, DeltaChessBoard},
+    board::{BoardPosition, BoardPositionOffset},
     types::ChessPiece,
 };
 
-/// a redundant type describing a chess move, useful for visual
-pub struct Move {
+/// a redundant QOL type useful for gui, for example to show popup screens for promotions, play visual or audio effects
+/// if some special moves occur or a check happens or whatever, like knowing what kind of piece got captured or something.
+/// This is to spare the poor gui implementators the work of needing to derive these purely from a [`DeltaChessBoard`]
+pub struct MoveInfo {
     pub piece: ChessPiece,
     pub from: BoardPosition,
     pub to: BoardPosition,
-    pub change: DeltaChessBoard,
+    pub captured_piece: Option<(ChessPiece, BoardPosition)>,
+    pub check_event: Option<CheckEvent>,
+    /// if the move is a promotion, contains which piece it promotes to. If implementing some kind of gui for this,
+    /// noticing multiple different valid moves to the same square with different promotion options, this might be a
+    /// good time to show a popup to let the user decide which piece they want to promote to.
+    pub promotion: Option<PromotionPiece>,
+    /// if castling occured, this will contain the from-to positions for the rook
+    pub castling: Option<(BoardPosition, BoardPosition)>,
+    pub en_passant_occured: bool,
+}
+
+pub enum CheckEvent {
+    Check,
+    Checkmate,
+    Stalemate,
+}
+
+pub enum PromotionPiece {
+    Queen,
+    Rook,
+    Bishop,
+    Knight,
 }
 
 /// a path for a piece on a chess board, consisting of an offset with constant step size and direction

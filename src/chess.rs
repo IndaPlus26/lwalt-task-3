@@ -1,7 +1,7 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::chess::board::{BoardPosition, BoardPositionOffset, ChessBoard, DeltaChessBoard};
-use crate::chess::r#move::{Path, PathLength, PathType};
+use crate::chess::r#move::{MoveInfo, Path, PathLength, PathType};
 use crate::chess::types::{ChessPiece, Move, Player, PlayerPiece};
 
 pub mod board;
@@ -63,15 +63,12 @@ pub fn valid_moves(
     piece: &PlayerPiece,
     pos: BoardPosition,
     state: &GameState,
-) -> HashSet<Move, DeltaChessBoard> {
-    let mut moves = HashSet::new();
+) -> HashMap<DeltaChessBoard, MoveInfo> {
+    let mut moves = HashMap::new();
     match piece {
+        // make this in the case of promotion return one move for every promotion variant, such that only the DeltaChessBoard differs
         ChessPiece::Pawn => {
-            moves.insert(Path::new(
-                BoardPositionOffset::FORWARD,
-                PathLength::Fixed(2),
-                PathType::Block,
-            ));
+
             // add diagonal capture and en passant
         }
         ChessPiece::Knight => {
