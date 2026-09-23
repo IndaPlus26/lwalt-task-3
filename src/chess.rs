@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::chess::board::{BoardPosition, BoardPositionOffset, ChessBoard, DeltaChessBoard};
-use crate::chess::r#move::{MoveInfo, MoveType, Path, PathLength, PathType, move_piece};
+use crate::chess::r#move::{
+    IntermediateMoveInfo, MoveInfo, MoveType, Path, PathLength, PathType, move_piece,
+};
 use crate::chess::types::{ChessPiece, Player, PlayerPiece};
 
 pub mod board;
@@ -13,7 +15,7 @@ pub struct ChessGame {
     /// the initial game state
     init_state: GameState,
     /// all moves made since the initial state in chronological order
-    moves: Vec<PlayerMove>,
+    moves: Vec<(DeltaChessBoard, MoveInfo)>,
 
     // --- redundant state for simpler computation ---
     // (TODO maybe make them cache lookups that just store queries from the init_board+init_state+moves instead)
@@ -36,103 +38,202 @@ pub struct GameState {
 // if it was a promotion, if it was a pawn moving 2 steps forward (enables en passant), etc
 
 impl GameState {
-    /// returns if the game has ended, and if so what the result was
-    pub fn get_termination(&self) -> Option<GameResult> {
-        todo!()
+    /// get all the valid moves for a piece, including with check rules
+    pub fn valid_moves(&self, pos: BoardPosition) -> HashMap<DeltaChessBoard, MoveInfo> {
+        let other_player = self.state.player_at_turn.toggle();
+        let mut proposed_moves = self.quasi_valid_moves(pos);
+
+        proposed_moves.retain(|proposed_move_delta, _| {
+            let mut board = self.board.clone();
+            board.update(proposed_move_delta);
+            for piece in board.get_player_pieces(other_player) {
+                for (_, intermediate_move_info) in self.quasi_valid_moves(pos) {
+                    // check if a king was captured somewhere, if so remove the proposed move (by returning false)
+                    todo!()
+                }
+            }
+            true
+        });
+
+        // go through proposed moves and check for check (heh) and construct a new HashMap<DeltaChessBoard, MoveInfo>
+        // to be returned
+
+        proposed_moves
     }
 
-    pub fn is_check(&self) -> Option<Player> {
-        todo!()
-    }
-
-    pub fn valid_moves(&self) -> HashSet<PlayerMove> {
-        let player = self.state.player_at_turn;
-
-        // TODO: check if player in check (meaning they are forced to move into a position where they're not in check)
-
-        for (piece, position) in self.board.get_player_pieces(&player) {
-            // check all available moves and return them
+    // i will use this as a starting point, and then filter out the invalid ones from the check rule by evaluating the same function
+    // again on every proposed move and remove it if it can lead to the king being captured. maybe i should also use this to calculate
+    // check, and that also means the full MoveInfo
+    /// get the valid moves for a piece on the board, including some invalid moves that enable the king being captured
+    ///
+    /// for each move, the [`MoveInfo.check_event`] field will be omitted and set to None, even if the move is a check event.
+    /// this is because it's impossible here to check whether a check as occured. This field will later be set correctly
+    /// inside [`GameState::valid_moves`]
+    pub fn quasi_valid_moves(
+        &self,
+        position: BoardPosition,
+    ) -> HashMap<DeltaChessBoard, IntermediateMoveInfo> {
+        let mut moves = HashMap::new();
+        // if the selected piece doesnt exist or belong to the player in turn
+        let Some(PlayerPiece { player, piece }) = self.board.get_square(position) else {
+            return moves;
+        };
+        if player != self.state.player_at_turn {
+            return moves;
         }
+        match piece {
+            // make this in the case of promotion return one move for every promotion variant, such that only the DeltaChessBoard differs
+            ChessPiece::Pawn => {
+                // add diagonal capture and en passant and initial 2 jump
+            }
+            ChessPiece::Knight => {
+                //  # #
+                // #   #
+                //   O
+                // #   #
+                //  # #
+                let offsets = [
+                    BoardPositionOffset::new(1, 2),
+                    BoardPositionOffset::new(1, -2),
+                    BoardPositionOffset::new(-1, 2),
+                    BoardPositionOffset::new(-1, -2),
+                    BoardPositionOffset::new(2, 1),
+                    BoardPositionOffset::new(2, -1),
+                    BoardPositionOffset::new(-2, 1),
+                    BoardPositionOffset::new(-2, -1),
+                ];
 
-        todo!()
+                for offset in offsets {
+                    if let Some(destination) = position.add(offset)
+                        && let Ok((delta_board, r#type)) =
+                            move_piece(&self.board, position, destination)
+                    {
+                        moves.insert(
+                            delta_board,
+                            IntermediateMoveInfo {
+                                player,
+                                piece,
+                                from: position,
+                                to: destination,
+                                captured_piece: match r#type {
+                                    MoveType::Captured(chess_piece) => {
+                                        Some((chess_piece, destination))
+                                    }
+                                    MoveType::Moved => None,
+                                },
+                                promotion: None,
+                                castling: None,
+                                en_passant: false,
+                            },
+                        );
+                    }
+                }
+            }
+            ChessPiece::Bishop => {
+                // #   #
+                //  # #
+                //   O
+                //  # #
+                // #   #
+
+                let directions = [
+                    BoardPositionOffset::new(1, 1),
+                    BoardPositionOffset::new(1, -1),
+                    BoardPositionOffset::new(-1, 1),
+                    BoardPositionOffset::new(-1, -1),
+                ];
+                for direction in directions {
+                    let path = Path::new(direction, PathLength::Infinite, PathType::Capture);
+                }
+                todo!()
+            }
+            ChessPiece::Rook => {
+                //   #
+                //   #
+                // ##O##
+                //   #
+                //   #
+
+                let directions = [
+                    BoardPositionOffset::new(1, 0),
+                    BoardPositionOffset::new(-1, 0),
+                    BoardPositionOffset::new(0, 1),
+                    BoardPositionOffset::new(0, -1),
+                ];
+                for direction in directions {
+                    let path = Path::new(direction, PathLength::Infinite, PathType::Capture);
+                }
+                todo!()
+            }
+            ChessPiece::Queen => {
+                // # # #
+                //  ###
+                // ##O##
+                //  ###
+                // # # #
+
+                let directions = [
+                    BoardPositionOffset::new(1, 1),
+                    BoardPositionOffset::new(1, -1),
+                    BoardPositionOffset::new(-1, 1),
+                    BoardPositionOffset::new(-1, -1),
+                    BoardPositionOffset::new(1, 0),
+                    BoardPositionOffset::new(-1, 0),
+                    BoardPositionOffset::new(0, 1),
+                    BoardPositionOffset::new(0, -1),
+                ];
+                todo!()
+            }
+            ChessPiece::King => {
+                //
+                //  ###
+                //  #O#
+                //  ###
+                //
+
+                let offsets = [
+                    BoardPositionOffset::new(1, 1),
+                    BoardPositionOffset::new(1, -1),
+                    BoardPositionOffset::new(-1, 1),
+                    BoardPositionOffset::new(-1, -1),
+                    BoardPositionOffset::new(1, 0),
+                    BoardPositionOffset::new(-1, 0),
+                    BoardPositionOffset::new(0, 1),
+                    BoardPositionOffset::new(0, -1),
+                ];
+                // for offset in offsets {
+                //     if let Some(destination) = position.add(offset)
+                //         && let Ok((delta_board, r#type)) =
+                //             move_piece(&self.board, position, destination)
+                //     {
+                //         moves.insert(
+                //             delta_board,
+                //             IntermediateMoveInfo {
+                //                 player,
+                //                 piece,
+                //                 from: position,
+                //                 to: destination,
+                //                 captured_piece: match r#type {
+                //                     MoveType::Captured(chess_piece) => {
+                //                         Some((chess_piece, destination))
+                //                     }
+                //                     MoveType::Moved => None,
+                //                 },
+                //                 promotion: None,
+                //                 castling: None,
+                //                 en_passant: false,
+                //             },
+                //         );
+                //     }
+                // }
+                todo!()
+            }
+        }
+        moves
     }
 }
 
 // pub fn moves_from_path(board: )
-
-/// get all the valid moves for a piece, including with check rules
-pub fn valid_moves(pos: BoardPosition, state: &GameState) -> HashMap<DeltaChessBoard, MoveInfo> {
-    let other_player = state.state.player_at_turn.toggle();
-    let mut proposed_moves = quasi_valid_moves(pos, state);
-
-    proposed_moves.retain(|proposed_move_delta, _| {
-        let mut board = state.board.clone();
-        board.update(proposed_move_delta);
-        for piece in board.get_player_pieces(other_player) {
-            for (_, move_info) in quasi_valid_moves(pos, state) {
-                // check if a king was captured somewhere, if so remove the proposed move (by returning false)
-                todo!()
-            }
-        }
-        true
-    });
-
-    // maybeee also go through all the pieces of the player and check if the player is at another turn if they could capture the king,
-    // which could be added as check info in MoveInfo
-
-    proposed_moves
-}
-
-// i will use this as a starting point, and then filter out the invalid ones from the check rule by evaluating the same function
-// again on every proposed move and remove it if it can lead to the king being captured. maybe i should also use this to calculate
-// check, and that also means the full MoveInfo
-/// get the valid moves for a piece on the board, excluding rules of check
-pub fn quasi_valid_moves(
-    // the position of the piece
-    pos: BoardPosition,
-    state: &GameState,
-) -> HashMap<DeltaChessBoard, MoveInfo> {
-    let mut moves = HashMap::new();
-    // if the selected piece doesnt exist or belong to the player in turn
-    let Some(PlayerPiece { player, piece }) = state.board.get_square(&pos) else {
-        return moves;
-    };
-    if player != state.state.player_at_turn {
-        return moves;
-    }
-    match piece {
-        // make this in the case of promotion return one move for every promotion variant, such that only the DeltaChessBoard differs
-        ChessPiece::Pawn => {
-            // add diagonal capture and en passant and initial 2 jump
-        }
-        ChessPiece::Knight => {
-            //  # #
-            // #   #
-            //   O
-            // #   #
-            //  # #
-            let offsets = [
-                BoardPositionOffset::new(1, 2),
-                BoardPositionOffset::new(1, -2),
-                BoardPositionOffset::new(-1, 2),
-                BoardPositionOffset::new(-1, -2),
-                BoardPositionOffset::new(2, 1),
-                BoardPositionOffset::new(2, -1),
-                BoardPositionOffset::new(-2, 1),
-                BoardPositionOffset::new(-2, -1),
-            ];
-
-            for offset in offsets {
-                if let Ok((delta_board, r#type)) = move_piece(&state.board, pos, offset) {}
-            }
-        }
-        ChessPiece::Bishop => todo!(),
-        ChessPiece::Rook => todo!(),
-        ChessPiece::Queen => todo!(),
-        ChessPiece::King => todo!(),
-    }
-    moves
-}
 
 // contains only the chess derived results, not actions like giving up or agreeing on draw. This should be handled by a higher level type
 // that contains this base game state machine and also implementation specific things
@@ -191,22 +292,27 @@ impl ChessGame {
 
     /// returns None if the game has ended
     pub fn turn(&self) -> Option<Player> {
-        if self.state.get_termination().is_some() {
+        if self
+            .moves
+            .last()
+            .is_some_and(|r#move| r#move.1.is_termination())
+        {
             None
         } else {
             Some(
                 self.moves
                     .last()
-                    .map(|r#move| r#move.player)
+                    .map(|r#move| r#move.1.player)
                     .unwrap_or(Player::White),
             )
         }
     }
 
-    /// if the move is invalid this returns a [`MoveError`], else the move is applied
-    pub fn try_move(&mut self, r#move: PlayerMove) -> Result<(), MoveError> {
-        todo!()
-    }
+    // TODO: make the move instead take an index of valid moves
+    // /// if the move is invalid this returns a [`MoveError`], else the move is applied
+    // pub fn try_move(&mut self, r#move: PlayerMove) -> Result<(), MoveError> {
+    //     todo!()
+    // }
 }
 
 pub enum MoveError {
@@ -214,7 +320,7 @@ pub enum MoveError {
     InvalidMove,
 }
 
-pub struct PlayerMove {
-    player: Player,
-    r#move: Move,
-}
+// pub struct PlayerMove {
+//     player: Player,
+//     r#move: Move,
+// }

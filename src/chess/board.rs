@@ -9,7 +9,7 @@ use crate::chess::types::{Player, PlayerPiece};
 pub struct ChessBoard(pub [[ChessBoardSquare; 8]; 8]);
 
 /// A zero-indexed position on the chess board
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BoardPosition {
     x: u8,
     y: u8,
@@ -26,6 +26,7 @@ pub struct BoardPositionOffset {
 pub type ChessBoardSquare = Option<PlayerPiece>;
 
 /// A compact type of storing a change of a [`ChessBoard`], storing in only 17 bytes what would otherwise take 128
+#[derive(Eq, PartialEq, Hash)]
 pub struct DeltaChessBoard {
     // the max number of squares that can be affected by a move is 4 (castling)
     store: [(BoardPosition, ChessBoardSquare); 4],

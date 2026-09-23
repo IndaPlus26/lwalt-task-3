@@ -1,12 +1,13 @@
 use crate::chess::{
     board::{BoardPosition, BoardPositionOffset, ChessBoard, DeltaChessBoard},
-    types::{ChessPiece, PlayerPiece},
+    types::{ChessPiece, Player},
 };
 
 /// a redundant QOL type useful for gui, for example to show popup screens for promotions, play visual or audio effects
 /// if some special moves occur or a check happens or whatever, like knowing what kind of piece got captured or something.
 /// This is to spare the poor gui implementators the work of needing to derive these purely from a board diff
 pub struct MoveInfo {
+    pub player: Player,
     pub piece: ChessPiece,
     pub from: BoardPosition,
     pub to: BoardPosition,
@@ -18,13 +19,43 @@ pub struct MoveInfo {
     pub promotion: Option<PromotionPiece>,
     /// if castling occured, this will contain the from-to positions for the rook
     pub castling: Option<(BoardPosition, BoardPosition)>,
-    pub en_passant_occured: bool,
+    pub en_passant: bool,
+}
+
+/// same as [`MoveInfo`] but not containing information about check/checkmate/stalemate. Only for internal use
+/// representating the transition stage before a real [`MoveInfo`] is created
+pub struct IntermediateMoveInfo {
+    pub player: Player,
+    pub piece: ChessPiece,
+    pub from: BoardPosition,
+    pub to: BoardPosition,
+    pub captured_piece: Option<(ChessPiece, BoardPosition)>,
+    pub promotion: Option<PromotionPiece>,
+    pub castling: Option<(BoardPosition, BoardPosition)>,
+    pub en_passant: bool,
 }
 
 pub enum CheckEvent {
     Check,
     Checkmate,
     Stalemate,
+}
+
+impl MoveInfo {
+    pub fn is_termination(&self) -> bool {
+        self.check_event
+            .as_ref()
+            .is_some_and(|event| event.is_termination())
+    }
+}
+impl CheckEvent {
+    pub fn is_termination(&self) -> bool {
+        match self {
+            CheckEvent::Check => false,
+            CheckEvent::Checkmate => true,
+            CheckEvent::Stalemate => true,
+        }
+    }
 }
 
 pub enum PromotionPiece {
@@ -49,8 +80,6 @@ pub enum MoveType {
 pub enum MoveError {
     /// if the piece landed on another piece of the same team
     FriendlyFire,
-    /// if the piece landed outside the bounds of the board
-    OutOfBounds,
     /// if the piece doesn't exist
     InvalidPiece,
 }
@@ -62,7 +91,7 @@ pub enum MoveError {
 pub fn move_piece(
     board: &ChessBoard,
     origin: BoardPosition,
-    offset: BoardPositionOffset,
+    destination: BoardPosition,
 ) -> Result<(DeltaChessBoard, MoveType), MoveError> {
     let Some(piece) = board.get_square(origin) else {
         return Err(MoveError::InvalidPiece);
@@ -70,15 +99,12 @@ pub fn move_piece(
     let mut delta = DeltaChessBoard::new();
     // make origin square empty
     delta.insert(origin, None);
-    let Some(new_pos) = origin.add(offset) else {
-        return Err(MoveError::OutOfBounds);
-    };
     // put piece at destination square
-    delta.insert(new_pos, Some(piece));
+    delta.insert(destination, Some(piece));
     Ok((
         delta,
         // check if existing piece previously on destination square
-        match board.get_square(new_pos) {
+        match board.get_square(destination) {
             Some(existing_piece) => {
                 if existing_piece.player == piece.player {
                     return Err(MoveError::FriendlyFire);
