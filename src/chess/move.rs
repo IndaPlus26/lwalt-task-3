@@ -1,11 +1,11 @@
 use crate::chess::{
-    board::{BoardPosition, BoardPositionOffset},
-    types::ChessPiece,
+    board::{BoardPosition, BoardPositionOffset, ChessBoard, DeltaChessBoard},
+    types::{ChessPiece, PlayerPiece},
 };
 
 /// a redundant QOL type useful for gui, for example to show popup screens for promotions, play visual or audio effects
 /// if some special moves occur or a check happens or whatever, like knowing what kind of piece got captured or something.
-/// This is to spare the poor gui implementators the work of needing to derive these purely from a [`DeltaChessBoard`]
+/// This is to spare the poor gui implementators the work of needing to derive these purely from a board diff
 pub struct MoveInfo {
     pub piece: ChessPiece,
     pub from: BoardPosition,
@@ -39,6 +39,55 @@ pub struct Path {
     offset: BoardPositionOffset,
     length: PathLength,
     r#type: PathType,
+}
+
+/// If a piece was captured or nothing happneed
+pub enum MoveType {
+    Captured(ChessPiece),
+    Moved,
+}
+pub enum MoveError {
+    /// if the piece landed on another piece of the same team
+    FriendlyFire,
+    /// if the piece landed outside the bounds of the board
+    OutOfBounds,
+    /// if the piece doesn't exist
+    InvalidPiece,
+}
+// reason i made this take in the entire chess board is bc i want to fetch the piece directly from there,
+// to avoid redundant state that may contain errors or be out of sync. so i thought i might as well keep
+// track of the captured status here as well, otherwise i'd have derived that from a DeltaBoard alone
+/// Move (or teleport) a piece from an origin to an offset.
+/// Only accounts for direct teleport moves, aka a piece swapping position for the one at the specified offset
+pub fn move_piece(
+    board: &ChessBoard,
+    origin: BoardPosition,
+    offset: BoardPositionOffset,
+) -> Result<(DeltaChessBoard, MoveType), MoveError> {
+    let Some(piece) = board.get_square(origin) else {
+        return Err(MoveError::InvalidPiece);
+    };
+    let mut delta = DeltaChessBoard::new();
+    // make origin square empty
+    delta.insert(origin, None);
+    let Some(new_pos) = origin.add(offset) else {
+        return Err(MoveError::OutOfBounds);
+    };
+    // put piece at destination square
+    delta.insert(new_pos, Some(piece));
+    Ok((
+        delta,
+        // check if existing piece previously on destination square
+        match board.get_square(new_pos) {
+            Some(existing_piece) => {
+                if existing_piece.player == piece.player {
+                    return Err(MoveError::FriendlyFire);
+                }
+                MoveType::Captured(existing_piece.piece)
+            }
+            None => MoveType::Moved,
+        },
+    ))
 }
 
 impl Path {

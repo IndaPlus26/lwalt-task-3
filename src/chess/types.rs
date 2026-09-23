@@ -14,6 +14,15 @@ pub enum Player {
     Black,
 }
 
+impl Player {
+    pub fn toggle(self) -> Self {
+        match self {
+            Player::White => Player::Black,
+            Player::Black => Player::White,
+        }
+    }
+}
+
 /// A piece of a specific player
 #[derive(Clone, Copy)]
 pub struct PlayerPiece {

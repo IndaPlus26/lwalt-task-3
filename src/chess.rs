@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::chess::board::{BoardPosition, BoardPositionOffset, ChessBoard, DeltaChessBoard};
-use crate::chess::r#move::{MoveInfo, Path, PathLength, PathType};
-use crate::chess::types::{ChessPiece, Move, Player, PlayerPiece};
+use crate::chess::r#move::{MoveInfo, MoveType, Path, PathLength, PathType, move_piece};
+use crate::chess::types::{ChessPiece, Player, PlayerPiece};
 
 pub mod board;
 pub mod r#move;
@@ -58,28 +58,73 @@ impl GameState {
     }
 }
 
-/// get the valid moves for a piece on the board
-pub fn valid_moves(
-    piece: &PlayerPiece,
+// pub fn moves_from_path(board: )
+
+/// get all the valid moves for a piece, including with check rules
+pub fn valid_moves(pos: BoardPosition, state: &GameState) -> HashMap<DeltaChessBoard, MoveInfo> {
+    let other_player = state.state.player_at_turn.toggle();
+    let mut proposed_moves = quasi_valid_moves(pos, state);
+
+    proposed_moves.retain(|proposed_move_delta, _| {
+        let mut board = state.board.clone();
+        board.update(proposed_move_delta);
+        for piece in board.get_player_pieces(other_player) {
+            for (_, move_info) in quasi_valid_moves(pos, state) {
+                // check if a king was captured somewhere, if so remove the proposed move (by returning false)
+                todo!()
+            }
+        }
+        true
+    });
+
+    // maybeee also go through all the pieces of the player and check if the player is at another turn if they could capture the king,
+    // which could be added as check info in MoveInfo
+
+    proposed_moves
+}
+
+// i will use this as a starting point, and then filter out the invalid ones from the check rule by evaluating the same function
+// again on every proposed move and remove it if it can lead to the king being captured. maybe i should also use this to calculate
+// check, and that also means the full MoveInfo
+/// get the valid moves for a piece on the board, excluding rules of check
+pub fn quasi_valid_moves(
+    // the position of the piece
     pos: BoardPosition,
     state: &GameState,
 ) -> HashMap<DeltaChessBoard, MoveInfo> {
     let mut moves = HashMap::new();
+    // if the selected piece doesnt exist or belong to the player in turn
+    let Some(PlayerPiece { player, piece }) = state.board.get_square(&pos) else {
+        return moves;
+    };
+    if player != state.state.player_at_turn {
+        return moves;
+    }
     match piece {
         // make this in the case of promotion return one move for every promotion variant, such that only the DeltaChessBoard differs
         ChessPiece::Pawn => {
-
-            // add diagonal capture and en passant
+            // add diagonal capture and en passant and initial 2 jump
         }
         ChessPiece::Knight => {
-            let offset = BoardPositionOffset::new(1, 2);
-            offset.rotate_right();
-            offset.rotate_right();
-            offset.rotate_right();
-            offset.mirror_x();
-            offset.rotate_right();
-            offset.rotate_right();
-            offset.rotate_right();
+            //  # #
+            // #   #
+            //   O
+            // #   #
+            //  # #
+            let offsets = [
+                BoardPositionOffset::new(1, 2),
+                BoardPositionOffset::new(1, -2),
+                BoardPositionOffset::new(-1, 2),
+                BoardPositionOffset::new(-1, -2),
+                BoardPositionOffset::new(2, 1),
+                BoardPositionOffset::new(2, -1),
+                BoardPositionOffset::new(-2, 1),
+                BoardPositionOffset::new(-2, -1),
+            ];
+
+            for offset in offsets {
+                if let Ok((delta_board, r#type)) = move_piece(&state.board, pos, offset) {}
+            }
         }
         ChessPiece::Bishop => todo!(),
         ChessPiece::Rook => todo!(),

@@ -9,7 +9,7 @@ use crate::chess::types::{Player, PlayerPiece};
 pub struct ChessBoard(pub [[ChessBoardSquare; 8]; 8]);
 
 /// A zero-indexed position on the chess board
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct BoardPosition {
     x: u8,
     y: u8,
@@ -158,17 +158,17 @@ impl ChessBoard {
     }
 
     /// get the square at the specified position
-    pub fn get_square(&self, position: &BoardPosition) -> ChessBoardSquare {
+    pub fn get_square(&self, position: BoardPosition) -> ChessBoardSquare {
         self.0[position.x as usize][position.y as usize]
     }
 
     /// get all pieces of the specified player on the board
-    pub fn get_player_pieces(&self, player: &Player) -> Vec<(&PlayerPiece, BoardPosition)> {
+    pub fn get_player_pieces(&self, player: Player) -> Vec<(&PlayerPiece, BoardPosition)> {
         let mut pieces = Vec::new();
         for (y, row) in self.0.iter().enumerate() {
             for (x, piece) in row.iter().enumerate() {
                 if let Some(piece) = piece
-                    && piece.player == *player
+                    && piece.player == player
                 {
                     pieces.push((piece, BoardPosition::new(x as u8, y as u8).unwrap()))
                 }
@@ -178,7 +178,7 @@ impl ChessBoard {
     }
 
     /// update the chess board from a [`DeltaChessBoard`] describing the changes
-    pub fn update(&mut self, delta: DeltaChessBoard) {
+    pub fn update(&mut self, delta: &DeltaChessBoard) {
         for (pos, square) in delta.iter() {
             self.0[pos.x as usize][pos.y as usize] = square;
         }
@@ -186,6 +186,32 @@ impl ChessBoard {
 }
 
 impl DeltaChessBoard {
+    pub fn new() -> Self {
+        Self {
+            store: [(BoardPosition::default(), None); 4],
+            len: 0,
+        }
+    }
+
+    pub fn insert(&mut self, position: BoardPosition, square: ChessBoardSquare) {
+        if self.len == 4 {
+            // you shouldnt run into this but if you do its most likely because you tried modding chess
+            // to support moves that affect more than 4 positions of a chessboard per move, in which case
+            // you must increase the size of DeltaChessBoard's storage, since it depends on the invariant
+            // that no move affects more than 4 squares at once (castling)
+            panic!("DeltaChessBoard out of bounds! Read comment above panic for more info!");
+        }
+        // check if position already exists in O(n^2) time (for n inserts)
+        for (pos, _) in self.iter() {
+            if pos == position {
+                // shouldnt happen if there arent any bugs
+                panic!("Uniqueness invariant in DeltaChessBoard failed.");
+            }
+        }
+        self.store[self.len as usize] = (position, square);
+        self.len += 1;
+    }
+
     pub fn iter(&self) -> DeltaChessBoardIter {
         DeltaChessBoardIter {
             delta_board: &self,
@@ -255,6 +281,11 @@ impl From<BoardPosition> for BoardPositionOffset {
             dx: value.x as i8,
             dy: value.y as i8,
         }
+    }
+}
+impl Default for BoardPosition {
+    fn default() -> Self {
+        Self { x: 0, y: 0 }
     }
 }
 
