@@ -1,4 +1,7 @@
-use crate::chess::{ChessGame, Move, Player};
+use crate::chess::{
+    ChessGame,
+    types::{Move, Player},
+};
 
 // the actual game that encapsulates the state machine and contains additional things
 

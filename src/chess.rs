@@ -1,29 +1,13 @@
 use std::collections::HashSet;
 
-use crate::chess::board::{BoardPosition, ChessBoard};
+use crate::chess::board::{BoardPosition, BoardPositionOffset, ChessBoard, DeltaChessBoard};
+use crate::chess::r#move::{Path, PathLength, PathType};
+use crate::chess::types::{ChessPiece, Move, Player, PlayerPiece};
 
 pub mod board;
+pub mod r#move;
+pub mod types;
 
-#[derive(Clone, Copy)]
-pub enum ChessPiece {
-    Pawn,
-    Knight,
-    Bishop,
-    Rook,
-    Queen,
-    King,
-}
-
-#[derive(Copy, Clone)]
-pub enum Player {
-    White,
-    Black,
-}
-
-pub struct Move {
-    piece: ChessPiece,
-    position: BoardPosition,
-}
 /// a chess game state machine
 pub struct ChessGame {
     /// the initial game state
@@ -43,11 +27,69 @@ pub struct GameState {
     state: PositionState,
 }
 
+// TODO: a chess piece's action will be defined by a function that takes in the current game state and returns a set
+// of squares it can move to, and for each of those also optionally additional effects. for example the en passant move will have the additional
+// effect of capturing the pawn, or the castling move will have the additional effect of moving the rook along with the king, or the promotion
+// move will have the additional effect of promoting to some piece (last one is questionable)
+//
+// if a move happens the game will check if the move captured a piece, if it was a castling or king move (to disable the castling available flag),
+// if it was a promotion, if it was a pawn moving 2 steps forward (enables en passant), etc
+
 impl GameState {
     /// returns if the game has ended, and if so what the result was
     pub fn get_termination(&self) -> Option<GameResult> {
         todo!()
     }
+
+    pub fn is_check(&self) -> Option<Player> {
+        todo!()
+    }
+
+    pub fn valid_moves(&self) -> HashSet<PlayerMove> {
+        let player = self.state.player_at_turn;
+
+        // TODO: check if player in check (meaning they are forced to move into a position where they're not in check)
+
+        for (piece, position) in self.board.get_player_pieces(&player) {
+            // check all available moves and return them
+        }
+
+        todo!()
+    }
+}
+
+/// get the valid moves for a piece on the board
+pub fn valid_moves(
+    piece: &PlayerPiece,
+    pos: BoardPosition,
+    state: &GameState,
+) -> HashSet<Move, DeltaChessBoard> {
+    let mut moves = HashSet::new();
+    match piece {
+        ChessPiece::Pawn => {
+            moves.insert(Path::new(
+                BoardPositionOffset::FORWARD,
+                PathLength::Fixed(2),
+                PathType::Block,
+            ));
+            // add diagonal capture and en passant
+        }
+        ChessPiece::Knight => {
+            let offset = BoardPositionOffset::new(1, 2);
+            offset.rotate_right();
+            offset.rotate_right();
+            offset.rotate_right();
+            offset.mirror_x();
+            offset.rotate_right();
+            offset.rotate_right();
+            offset.rotate_right();
+        }
+        ChessPiece::Bishop => todo!(),
+        ChessPiece::Rook => todo!(),
+        ChessPiece::Queen => todo!(),
+        ChessPiece::King => todo!(),
+    }
+    moves
 }
 
 // contains only the chess derived results, not actions like giving up or agreeing on draw. This should be handled by a higher level type
@@ -63,7 +105,7 @@ pub enum GameResult {
 /// the current position state of a chess game
 #[derive(Clone)]
 pub struct PositionState {
-    player_at_move: Player,
+    player_at_turn: Player,
     /// (white, black)
     can_castle: (bool, bool),
     /// a square where en passant is possible (if a pawn moved past it the previous move)
@@ -77,7 +119,7 @@ pub struct PositionState {
 impl Default for PositionState {
     fn default() -> Self {
         Self {
-            player_at_move: Player::White,
+            player_at_turn: Player::White,
             can_castle: (true, true),
             en_passant_square: None,
             halfmove_clock: 0,
@@ -117,10 +159,6 @@ impl ChessGame {
                     .unwrap_or(Player::White),
             )
         }
-    }
-
-    pub fn valid_moves(&self, player: Player) -> HashSet<PlayerMove> {
-        todo!()
     }
 
     /// if the move is invalid this returns a [`MoveError`], else the move is applied
