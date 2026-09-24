@@ -3,6 +3,23 @@ use crate::chess::{
     types::{ChessPiece, Player},
 };
 
+// check conditions for a move: If you make the move, and then make another move of the same player, you could capture the king
+// stalemate conditions: If you make a move, and for every proposed move of the other player, you can capture the king in the next move
+// checkmate conditions: Both check and stalemate at the same time
+//
+// check conditions for a move will in compute operations the number valid moves for the same player after, O(n)
+// stalemate conditions for a move will require O(n²) because one needs to calculate all valid moves for the other player
+// and for each of them the valid moves for the same player
+// what does this mean practically? the most legal moves for a single player possible is around 220, average is around 40 quasi legal
+// moves. This means on average stalemate checks can cost up to 40^2=1600 operations. There are most likely good ways to lower
+// this dramatically with dynamic programming to cache operation results that can be reused.
+//
+// for every single quasi legal move the entire chess board will be cloned, meaning 128 bytes being cloned, meaning for 1600
+// operations this goes up to 200kb being cloned checking if a single move causes a stalemate, and for 40 proposed moves this
+// means 8mb (!) of cloning every single turn. Im therefore choosing to not evaluate stalemate/checkmate for each move, only check,
+// and i'll let the stalemate condition be decided by if the move after has no legal moves, which is only O(n) and managable.
+//
+//
 /// a redundant QOL type useful for gui, for example to show popup screens for promotions, play visual or audio effects
 /// if some special moves occur or a check happens or whatever, like knowing what kind of piece got captured or something.
 /// This is to spare the poor gui implementators the work of needing to derive these purely from a board diff
@@ -12,7 +29,7 @@ pub struct MoveInfo {
     pub from: BoardPosition,
     pub to: BoardPosition,
     pub captured_piece: Option<(ChessPiece, BoardPosition)>,
-    pub check_event: Option<CheckEvent>,
+    pub check: bool,
     /// if the move is a promotion, contains which piece it promotes to. If implementing some kind of gui for this,
     /// noticing multiple different valid moves to the same square with different promotion options, this might be a
     /// good time to show a popup to let the user decide which piece they want to promote to.
@@ -33,29 +50,6 @@ pub struct IntermediateMoveInfo {
     pub promotion: Option<PromotionPiece>,
     pub castling: Option<(BoardPosition, BoardPosition)>,
     pub en_passant: bool,
-}
-
-pub enum CheckEvent {
-    Check,
-    Checkmate,
-    Stalemate,
-}
-
-impl MoveInfo {
-    pub fn is_termination(&self) -> bool {
-        self.check_event
-            .as_ref()
-            .is_some_and(|event| event.is_termination())
-    }
-}
-impl CheckEvent {
-    pub fn is_termination(&self) -> bool {
-        match self {
-            CheckEvent::Check => false,
-            CheckEvent::Checkmate => true,
-            CheckEvent::Stalemate => true,
-        }
-    }
 }
 
 pub enum PromotionPiece {

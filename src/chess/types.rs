@@ -15,7 +15,12 @@ pub enum Player {
 }
 
 impl Player {
-    pub fn toggle(self) -> Self {
+    pub fn toggle(&mut self) {
+        *self = self.toggled();
+    }
+
+    /// get the opposite player
+    pub fn toggled(self) -> Self {
         match self {
             Player::White => Player::Black,
             Player::Black => Player::White,

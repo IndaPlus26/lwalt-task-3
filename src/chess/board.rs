@@ -2,11 +2,14 @@ use std::ops::{Add, AddAssign, Sub};
 
 use crate::chess::types::{Player, PlayerPiece};
 
+/// the side length of a chess board
+pub const SIDE_LENGTH: usize = 8;
+
 /// A chess board. Does not encode any rules, but is freely changable
 /// Stores the squares such that indexing becomes coordinates, meaning the first array is the first vertical row to the left,
 /// and goes upwards
 #[derive(Clone)]
-pub struct ChessBoard(pub [[ChessBoardSquare; 8]; 8]);
+pub struct ChessBoard(pub [[ChessBoardSquare; SIDE_LENGTH]; SIDE_LENGTH]);
 
 /// A zero-indexed position on the chess board
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -28,7 +31,7 @@ pub type ChessBoardSquare = Option<PlayerPiece>;
 /// A compact type of storing a change of a [`ChessBoard`], storing in only 17 bytes what would otherwise take 128
 #[derive(Eq, PartialEq, Hash)]
 pub struct DeltaChessBoard {
-    // the max number of squares that can be affected by a move is 4 (castling)
+    // the max number of squares that can be changed by a single move is 4 (castling)
     store: [(BoardPosition, ChessBoardSquare); 4],
     len: u8,
 }
@@ -36,7 +39,7 @@ pub struct DeltaChessBoard {
 impl BoardPosition {
     /// returns None if the coordinates are out of bounds
     pub fn new(x: u8, y: u8) -> Option<Self> {
-        if x > 7 || y > 7 {
+        if x >= SIDE_LENGTH as u8 || y >= SIDE_LENGTH as u8 {
             None
         } else {
             Some(Self { x, y })
@@ -54,7 +57,7 @@ impl BoardPosition {
     pub fn add(self, offset: BoardPositionOffset) -> Option<Self> {
         let x = self.x as i8 + offset.dx;
         let y = self.y as i8 + offset.dy;
-        if x < 0 || y < 0 || x > 7 || y > 7 {
+        if x < 0 || y < 0 || x >= SIDE_LENGTH as i8 || y >= SIDE_LENGTH as i8 {
             None
         } else {
             Some(Self {
@@ -119,7 +122,7 @@ impl BoardPositionOffset {
 
 impl ChessBoard {
     /// an empty chess board with no pieces on it
-    pub const EMPTY: Self = Self([[None; 8]; 8]);
+    pub const EMPTY: Self = Self([[None; SIDE_LENGTH]; SIDE_LENGTH]);
 
     /// create a chess board with the standard chess starting position
     pub const fn start_position() -> Self {
@@ -138,18 +141,20 @@ impl ChessBoard {
 
     /// construct a chess board from an array of arrays, and rotate it so it matches the
     /// right indexing. Useful when defining constant chess boards in code
-    pub const fn from_rotated(mut rotated: [[ChessBoardSquare; 8]; 8]) -> Self {
+    pub const fn from_rotated(mut rotated: [[ChessBoardSquare; SIDE_LENGTH]; SIDE_LENGTH]) -> Self {
         // diagonal starting top left until the middle
         let mut n_y = 0;
-        while n_y < 4 {
+        while n_y < SIDE_LENGTH / 2 {
             // index of the row
             let mut x = 0 + n_y;
-            while x < 7 - n_y {
+            while x < SIDE_LENGTH - 1 - n_y {
                 let item = rotated[n_y][x];
-                rotated[n_y][x] = rotated[7 - n_y][x];
-                rotated[7 - n_y][x] = rotated[7 - n_y][7 - x];
-                rotated[7 - n_y][7 - x] = rotated[n_y][7 - x];
-                rotated[n_y][7 - x] = item;
+                rotated[n_y][x] = rotated[SIDE_LENGTH - 1 - n_y][x];
+                rotated[SIDE_LENGTH - 1 - n_y][x] =
+                    rotated[SIDE_LENGTH - 1 - n_y][SIDE_LENGTH - 1 - x];
+                rotated[SIDE_LENGTH - 1 - n_y][SIDE_LENGTH - 1 - x] =
+                    rotated[n_y][SIDE_LENGTH - 1 - x];
+                rotated[n_y][SIDE_LENGTH - 1 - x] = item;
                 x += 1
             }
 
@@ -163,11 +168,23 @@ impl ChessBoard {
         self.0[position.x as usize][position.y as usize]
     }
 
+    /// get all the possible board positions
+    // TODO: make this an iterator instead
+    pub fn squares(&self) -> Vec<BoardPosition> {
+        let mut squares = Vec::with_capacity(SIDE_LENGTH.pow(2));
+        for x in 0..SIDE_LENGTH {
+            for y in 0..SIDE_LENGTH {
+                squares.push(BoardPosition::new(x as u8, y as u8).unwrap());
+            }
+        }
+        squares
+    }
+
     /// get all pieces of the specified player on the board
     pub fn get_player_pieces(&self, player: Player) -> Vec<(&PlayerPiece, BoardPosition)> {
         let mut pieces = Vec::new();
-        for (y, row) in self.0.iter().enumerate() {
-            for (x, piece) in row.iter().enumerate() {
+        for (x, column) in self.0.iter().enumerate() {
+            for (y, piece) in column.iter().enumerate() {
                 if let Some(piece) = piece
                     && piece.player == player
                 {

@@ -18,6 +18,10 @@ pub struct ChessGame {
     moves: Vec<(DeltaChessBoard, MoveInfo)>,
 
     // --- redundant state for simpler computation ---
+    /// this doesn't mean the game termination can't be checkmate, to check that, it is required to check if the last
+    /// move was a check or not.
+    is_stalemate: bool,
+
     // (TODO maybe make them cache lookups that just store queries from the init_board+init_state+moves instead)
     /// the current state of the game
     state: GameState,
@@ -40,35 +44,54 @@ pub struct GameState {
 impl GameState {
     /// get all the valid moves for a piece, including with check rules
     pub fn valid_moves(&self, pos: BoardPosition) -> HashMap<DeltaChessBoard, MoveInfo> {
-        let other_player = self.state.player_at_turn.toggle();
+        let other_player = self.state.player_at_turn.toggled();
         let mut proposed_moves = self.quasi_valid_moves(pos);
+        let mut valid_moves = HashMap::with_capacity(proposed_moves.len());
 
-        proposed_moves.retain(|proposed_move_delta, _| {
+        'move_loop: for (proposed_move_delta, _) in proposed_moves {
             let mut board = self.board.clone();
-            board.update(proposed_move_delta);
-            for piece in board.get_player_pieces(other_player) {
-                for (_, intermediate_move_info) in self.quasi_valid_moves(pos) {
-                    // check if a king was captured somewhere, if so remove the proposed move (by returning false)
-                    todo!()
+            board.update(&proposed_move_delta);
+
+            // validitiy check
+            // check the opponents next valid moves
+            let mut state = self.state.clone();
+            state.player_at_turn.toggle();
+            let game_state = GameState { board, state }; // both update board and toggle player
+            for (_, intermediate_move_info) in board
+                .get_player_pieces(other_player)
+                .iter()
+                .flat_map(|(_, piece_pos)| game_state.quasi_valid_moves(*piece_pos).into_iter())
+            {
+                // if one of them captures your king, the move is invalid and not included
+                if let Some((ChessPiece::King, _)) = intermediate_move_info.captured_piece {
+                    continue 'move_loop;
                 }
             }
-            true
-        });
-
-        // go through proposed moves and check for check (heh) and construct a new HashMap<DeltaChessBoard, MoveInfo>
-        // to be returned
+            // check check
+            // check your next valid moves like it were your turn twice in a row
+            let mut state = self.state.clone();
+            let game_state = GameState { board, state }; // only update board, same player still at turn
+            for (_, intermediate_move_info) in board
+                .get_player_pieces()
+                .iter()
+                .flat_map(|(_, piece_pos)| game_state.quasi_valid_moves(*piece_pos).into_iter())
+            {
+                // check if a king was captured somewhere, if so the move is a check
+                if let Some((ChessPiece::King, _)) = intermediate_move_info.captured_piece {
+                    return false;
+                }
+            }
+            return true;
+        }
 
         proposed_moves
     }
 
-    // i will use this as a starting point, and then filter out the invalid ones from the check rule by evaluating the same function
-    // again on every proposed move and remove it if it can lead to the king being captured. maybe i should also use this to calculate
-    // check, and that also means the full MoveInfo
-    /// get the valid moves for a piece on the board, including some invalid moves that enable the king being captured
-    ///
-    /// for each move, the [`MoveInfo.check_event`] field will be omitted and set to None, even if the move is a check event.
-    /// this is because it's impossible here to check whether a check as occured. This field will later be set correctly
-    /// inside [`GameState::valid_moves`]
+    // OPTIMIZATION: this could instead be a lazily computed iterator, which would need not needing to store the entire HashMap, since
+    // basically all use cases only require sequiental access. Could be useful in cases of early return, like if you find a move that
+    // captured the king you dont need to check further.
+    /// Get the valid moves for a piece on the board, only according to the piece's move rules, and no check rules.
+    /// This means it may include invalid moves that enable the king being captured in the next move.
     pub fn quasi_valid_moves(
         &self,
         position: BoardPosition,
@@ -137,13 +160,16 @@ impl GameState {
                 // #   #
 
                 let directions = [
-                    BoardPositionOffset::new(1, 1),
-                    BoardPositionOffset::new(1, -1),
-                    BoardPositionOffset::new(-1, 1),
-                    BoardPositionOffset::new(-1, -1),
+                    BoardPositionOffset::DIAGONAL_NE,
+                    BoardPositionOffset::DIAGONAL_NW,
+                    BoardPositionOffset::DIAGONAL_SW,
+                    BoardPositionOffset::DIAGONAL_SE,
                 ];
                 for direction in directions {
-                    let path = Path::new(direction, PathLength::Infinite, PathType::Capture);
+                    'paths: for offset in
+                        Path::new(direction, PathLength::Infinite, PathType::Capture).iter()
+                    {
+                    }
                 }
                 todo!()
             }
@@ -155,10 +181,10 @@ impl GameState {
                 //   #
 
                 let directions = [
-                    BoardPositionOffset::new(1, 0),
-                    BoardPositionOffset::new(-1, 0),
-                    BoardPositionOffset::new(0, 1),
-                    BoardPositionOffset::new(0, -1),
+                    BoardPositionOffset::FORWARD,
+                    BoardPositionOffset::BACKWARD,
+                    BoardPositionOffset::LEFT,
+                    BoardPositionOffset::RIGHT,
                 ];
                 for direction in directions {
                     let path = Path::new(direction, PathLength::Infinite, PathType::Capture);
@@ -173,14 +199,14 @@ impl GameState {
                 // # # #
 
                 let directions = [
-                    BoardPositionOffset::new(1, 1),
-                    BoardPositionOffset::new(1, -1),
-                    BoardPositionOffset::new(-1, 1),
-                    BoardPositionOffset::new(-1, -1),
-                    BoardPositionOffset::new(1, 0),
-                    BoardPositionOffset::new(-1, 0),
-                    BoardPositionOffset::new(0, 1),
-                    BoardPositionOffset::new(0, -1),
+                    BoardPositionOffset::DIAGONAL_NE,
+                    BoardPositionOffset::DIAGONAL_NW,
+                    BoardPositionOffset::DIAGONAL_SW,
+                    BoardPositionOffset::DIAGONAL_SE,
+                    BoardPositionOffset::FORWARD,
+                    BoardPositionOffset::BACKWARD,
+                    BoardPositionOffset::LEFT,
+                    BoardPositionOffset::RIGHT,
                 ];
                 todo!()
             }
@@ -192,14 +218,14 @@ impl GameState {
                 //
 
                 let offsets = [
-                    BoardPositionOffset::new(1, 1),
-                    BoardPositionOffset::new(1, -1),
-                    BoardPositionOffset::new(-1, 1),
-                    BoardPositionOffset::new(-1, -1),
-                    BoardPositionOffset::new(1, 0),
-                    BoardPositionOffset::new(-1, 0),
-                    BoardPositionOffset::new(0, 1),
-                    BoardPositionOffset::new(0, -1),
+                    BoardPositionOffset::DIAGONAL_NE,
+                    BoardPositionOffset::DIAGONAL_NW,
+                    BoardPositionOffset::DIAGONAL_SW,
+                    BoardPositionOffset::DIAGONAL_SE,
+                    BoardPositionOffset::FORWARD,
+                    BoardPositionOffset::BACKWARD,
+                    BoardPositionOffset::LEFT,
+                    BoardPositionOffset::RIGHT,
                 ];
                 // for offset in offsets {
                 //     if let Some(destination) = position.add(offset)
@@ -280,6 +306,7 @@ impl ChessGame {
         Self {
             init_state: state.clone(),
             moves: Vec::new(),
+            is_stalemate: false,
 
             state,
         }
