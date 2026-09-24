@@ -102,7 +102,7 @@ pub struct MovedPiece {
 // to avoid redundant state that may contain errors or be out of sync. so i thought i might as well keep
 // track of the captured status here as well, otherwise i'd have derived that from a DeltaBoard alone
 /// Move (or teleport) a piece from an origin to a destination.
-/// Only accounts for direct teleport moves, aka a piece swapping position for the one at the specified offset
+/// Only accounts for direct teleport moves, aka a piece teleporting to the position at the specified offset
 /// Returns Ok if the move was valid, as well as the delta chess board and optionally if it captured a piece there
 pub fn move_piece(
     board: &ChessBoard,

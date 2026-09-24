@@ -39,42 +39,57 @@ pub struct GameState {
 // TODO: actually for this entire codebase, refactor the code to follow the rule of every function always staying on
 // the same abstraction layer
 impl GameState {
-    /// Get all the valid moves for a piece, including with check rules
-    /// The output iterator guarantees a uniqueness invariant
+    /// Get all the unique valid moves for a piece, including with check rules
     pub fn valid_moves<'a>(
         &'a self,
         pos: BoardPosition,
     ) -> Box<dyn Iterator<Item = (DeltaChessBoard, IntermediateMoveInfo)> + 'a> {
-        Box::new(self.quasi_valid_moves(pos).filter(|(board_delta, _)| {
-            let mut board = self.board.clone();
-            board.update(&board_delta);
+        Box::new(
+            self.quasi_valid_moves(pos)
+                .filter(|(board_delta, proposed_move)| {
+                    let mut board = self.board.clone();
+                    board.update(&board_delta);
 
-            // validitiy check
-            // check the opponents next valid moves
-            let mut state = self.state.clone();
-            state.player_at_turn.toggle();
-            let board_squares = board.squares();
-            let game_state = GameState { board, state }; // both update board and toggle player
-            for (_, intermediate_move_info) in board_squares
-                .iter()
-                .flat_map(|position| game_state.quasi_valid_moves(*position))
-            {
-                // if one of them captures your king, the proposed move is invalid and filtered out
-                if let Some((ChessPiece::King, _)) = intermediate_move_info.captured_piece {
-                    return false;
-                }
-            }
-            return true;
-        }))
+                    // validitiy check
+                    // check the opponents next valid moves
+                    let mut state = self.state.clone();
+                    state.player_at_turn.toggle();
+                    let board_squares = board.squares();
+                    let game_state = GameState { board, state }; // both update board and toggle player
+                    for (_, opponent_move) in board_squares
+                        .iter()
+                        .flat_map(|position| game_state.quasi_valid_moves(*position))
+                    {
+                        // if the proposed move is a castling, and if any opponent move touches a square inbetween,
+                        // the castling is invalid.
+                        if let Some((rook_init_pos, _)) = proposed_move.castling {
+                            let castle_len = rook_init_pos.x().abs_diff(proposed_move.from.x());
+
+                            // R###K
+                            // ##KR#
+
+                            if opponent_move.to.y() == rook_init_pos.y()
+                                // if within 2 squares of the king's starting position (meaning the king passes through it)
+                                && opponent_move.to.x().abs_diff(proposed_move.from.x()) <= 2
+                                // and within castle_len squares from the rook
+                                && opponent_move.to.x().abs_diff(rook_init_pos.x()) <= castle_len
+                            {
+                                return false;
+                            }
+                        }
+
+                        // if an opponent move captures your king, the proposed move is invalid and filtered out
+                        if let Some((ChessPiece::King, _)) = opponent_move.captured_piece {
+                            return false;
+                        }
+                    }
+                    return true;
+                }),
+        )
     }
 
-    // OPTIMIZATION: this could instead be a lazily computed iterator, which would need not needing to store the entire Vec, since
-    // basically all use cases only require sequiental access. Could be useful in cases of early return, like if you find a move that
-    // captured the king you dont need to check further.
-    /// Get the valid moves for a piece on the board, only according to the piece's move rules, and no check rules.
+    /// Get the unique valid moves for a piece on the board, only according to the piece's move rules, and no check rules.
     /// This means it may include invalid moves that enable the king being captured in the next move.
-    ///
-    /// The output iterator has a uniqueness invariant
     pub fn quasi_valid_moves<'a>(
         &'a self,
         position: BoardPosition,
@@ -168,9 +183,54 @@ impl GameState {
                     BoardPositionOffset::LEFT,
                     BoardPositionOffset::RIGHT,
                 ];
-                return Box::new(directions.into_iter().flat_map(move |direction| {
-                    Path::new(direction, PathLength::Infinite).moves(&self.board, position)
-                }));
+                let can_castle = match player {
+                    Player::White => self.state.white_can_castle,
+                    Player::Black => self.state.black_can_castle,
+                };
+                // if the rook move will disable castling.
+                // means if castling is currently enabled (the rook hasnt moved before) and
+                // that rook is currently moving, disable castling on that spot
+                let disabled_castling = if can_castle.0
+                    && position
+                        == BoardPosition::new(
+                            0,
+                            match player {
+                                Player::White => 0,
+                                Player::Black => 7,
+                            },
+                        )
+                        .unwrap()
+                {
+                    (Some(()), None)
+                } else if can_castle.1
+                    && position
+                        == BoardPosition::new(
+                            7,
+                            match player {
+                                Player::White => 0,
+                                Player::Black => 7,
+                            },
+                        )
+                        .unwrap()
+                {
+                    (None, Some(()))
+                } else {
+                    (None, None)
+                };
+
+                return Box::new(
+                    directions
+                        .into_iter()
+                        .flat_map(move |direction| {
+                            Path::new(direction, PathLength::Infinite).moves(&self.board, position)
+                        })
+                        // all of the proposed rook moves in this iterator will disable castling
+                        // if that rook previously was unmoved (as well as the king)
+                        .map(move |(board_delta, mut move_info)| {
+                            move_info.disabled_castling = disabled_castling;
+                            (board_delta, move_info)
+                        }),
+                );
             }
             ChessPiece::Queen => {
                 // # # #
@@ -210,34 +270,162 @@ impl GameState {
                     BoardPositionOffset::LEFT,
                     BoardPositionOffset::RIGHT,
                 ];
-                // for offset in offsets {
-                //     if let Some(destination) = position.add(offset)
-                //         && let Ok((delta_board, r#type)) =
-                //             move_piece(&self.board, position, destination)
-                //     {
-                //         moves.insert(
-                //             delta_board,
-                //             IntermediateMoveInfo {
-                //                 player,
-                //                 piece,
-                //                 from: position,
-                //                 to: destination,
-                //                 captured_piece: match r#type {
-                //                     MoveType::Captured(chess_piece) => {
-                //                         Some((chess_piece, destination))
-                //                     }
-                //                     MoveType::Moved => None,
-                //                 },
-                //                 promotion: None,
-                //                 castling: None,
-                //                 en_passant: false,
-                //             },
-                //         );
-                //     }
-                // }
+
+                let can_castle = match player {
+                    Player::White => self.state.white_can_castle,
+                    Player::Black => self.state.black_can_castle,
+                };
+                // TODO fix this taking up so much code for a simple castling implementation
+                // if castling is enabled on the left side, make sure all squares inbetween are empty
+                let left_castle = if can_castle.0
+                    // all squares inbetween are empty
+                    && (1..position.x()).all(|x| {
+                        self.board
+                            .get_square(BoardPosition::new(x, position.y()).unwrap())
+                            .is_none()
+                    }) {
+                    let mut board_delta = DeltaChessBoard::new();
+                    let new_king_position =
+                        BoardPosition::new(position.x() - 2, position.y()).unwrap();
+                    let new_rook_position =
+                        BoardPosition::new(position.x() - 1, position.y()).unwrap();
+                    let old_rook_position = BoardPosition::new(0, position.y()).unwrap();
+
+                    // move the king
+                    board_delta.insert(
+                        new_king_position,
+                        Some(PlayerPiece {
+                            player,
+                            piece: ChessPiece::King,
+                        }),
+                    );
+                    // move the rook
+                    board_delta.insert(
+                        new_rook_position,
+                        Some(PlayerPiece {
+                            player,
+                            piece: ChessPiece::Rook,
+                        }),
+                    );
+                    // empty where the king and rook used to be
+                    board_delta.insert(position, None);
+                    board_delta.insert(old_rook_position, None);
+                    Some((
+                        board_delta,
+                        IntermediateMoveInfo {
+                            player,
+                            piece,
+                            from: position,
+                            to: new_king_position,
+                            captured_piece: None,
+                            promotion: None,
+                            castling: Some((old_rook_position, new_rook_position)),
+                            en_passant: false,
+                            disabled_castling: (Some(()), Some(())),
+                            set_en_passant_square: None,
+                        },
+                    ))
+                } else {
+                    None
+                };
+
+                let right_castle = if can_castle.1
+                    // all squares inbetween are empty
+                    && (position.x()+1..7).all(|x| {
+                        self.board
+                            .get_square(BoardPosition::new(x, position.y()).unwrap())
+                            .is_none()
+                    }) {
+                    let mut board_delta = DeltaChessBoard::new();
+                    let new_king_position =
+                        BoardPosition::new(position.x() + 2, position.y()).unwrap();
+                    let new_rook_position =
+                        BoardPosition::new(position.x() + 1, position.y()).unwrap();
+                    let old_rook_position = BoardPosition::new(7, position.y()).unwrap();
+
+                    // move the king
+                    board_delta.insert(
+                        new_king_position,
+                        Some(PlayerPiece {
+                            player,
+                            piece: ChessPiece::King,
+                        }),
+                    );
+                    // move the rook
+                    board_delta.insert(
+                        new_rook_position,
+                        Some(PlayerPiece {
+                            player,
+                            piece: ChessPiece::Rook,
+                        }),
+                    );
+                    // empty where the king and rook used to be
+                    board_delta.insert(position, None);
+                    board_delta.insert(old_rook_position, None);
+                    Some((
+                        board_delta,
+                        IntermediateMoveInfo {
+                            player,
+                            piece,
+                            from: position,
+                            to: new_king_position,
+                            captured_piece: None,
+                            promotion: None,
+                            castling: Some((old_rook_position, new_rook_position)),
+                            en_passant: false,
+                            disabled_castling: (Some(()), Some(())),
+                            set_en_passant_square: None,
+                        },
+                    ))
+                } else {
+                    None
+                };
+
+                // if castling wasnt already disabled, moving the king or castling will definitely disable it
+                let disabled_castling = match can_castle {
+                    (true, true) => (Some(()), Some(())),
+                    (true, false) => (Some(()), None),
+                    (false, true) => (None, Some(())),
+                    (false, false) => (None, None),
+                };
+
+                return Box::new(
+                    offsets
+                        .into_iter()
+                        .filter_map(move |offset| {
+                            if let Some(destination) = position.add(offset)
+                                && let Ok(MovedPiece {
+                                    board_delta,
+                                    captured_piece,
+                                    player,
+                                    piece,
+                                }) = move_piece(&self.board, position, destination)
+                            {
+                                Some((
+                                    board_delta,
+                                    IntermediateMoveInfo {
+                                        player,
+                                        piece,
+                                        from: position,
+                                        to: destination,
+                                        captured_piece: captured_piece
+                                            .map(|captured_piece| (captured_piece, destination)),
+                                        promotion: None,
+                                        castling: None,
+                                        en_passant: false,
+                                        disabled_castling,
+                                        set_en_passant_square: None,
+                                    },
+                                ))
+                            } else {
+                                None
+                            }
+                        })
+                        .chain(left_castle)
+                        .chain(right_castle),
+                );
 
                 // add castling
-                todo!()
             }
         }
     }

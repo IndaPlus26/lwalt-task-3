@@ -66,6 +66,15 @@ impl BoardPosition {
             })
         }
     }
+
+    /// get the x coordinate
+    pub fn x(&self) -> u8 {
+        self.x
+    }
+    /// get the y coordinate
+    pub fn y(&self) -> u8 {
+        self.y
+    }
 }
 
 impl BoardPositionOffset {
