@@ -2,7 +2,7 @@ use std::iter;
 
 use crate::chess::board::{BoardPosition, BoardPositionOffset, ChessBoard, DeltaChessBoard};
 use crate::chess::r#move::{
-    IntermediateMoveInfo, MoveInfo, MovedPiece, Path, PathLength, move_piece,
+    IntermediateMoveInfo, MoveInfo, MovedPiece, Path, PathLength, PromotionPiece, move_piece,
 };
 use crate::chess::types::{ChessPiece, Player, PlayerPiece};
 
@@ -101,11 +101,199 @@ impl GameState {
         if player != self.state.player_at_turn {
             return Box::new(iter::empty());
         }
+        // i know this match statement is a nightmare dont remind me
+        // my code here is so inelegant it makes me really frustrated, i need to elegantize it: TODO
         match piece {
             // make this in the case of promotion return one move for every promotion variant, such that only the DeltaChessBoard differs
             ChessPiece::Pawn => {
-                // add diagonal capture and en passant and initial 2 jump and promotion
-                todo!()
+                let y_sign = match player {
+                    Player::White => 1,
+                    Player::Black => -1,
+                };
+                let promotion_y = match player {
+                    Player::White => 7,
+                    Player::Black => 0,
+                };
+                let home_row_y = match player {
+                    Player::White => 1,
+                    Player::Black => 6,
+                };
+                let capture_offsets = [
+                    BoardPositionOffset::new(1, y_sign),
+                    BoardPositionOffset::new(-1, y_sign),
+                ];
+                // move 1 step forward
+                let forward_one = 'f1: {
+                    let offset = BoardPositionOffset::new(0, y_sign);
+                    let Some(destination) = position.add(offset) else {
+                        break 'f1 None;
+                    };
+                    // pawns may not capture forward
+                    let Ok(MovedPiece {
+                        board_delta,
+                        captured_piece: None,
+                        player,
+                        piece,
+                    }) = move_piece(&self.board, position, destination)
+                    else {
+                        break 'f1 None;
+                    };
+                    Some((
+                        board_delta,
+                        IntermediateMoveInfo {
+                            player,
+                            piece,
+                            from: position,
+                            to: destination,
+                            captured_piece: None,
+                            promotion: None,
+                            castling: None,
+                            en_passant: false,
+                            disabled_castling: (None, None),
+                            set_en_passant_square: None,
+                        },
+                    ))
+                };
+                // move 2 steps forward
+                let forward_two = 'f2: {
+                    // requires that 1 step forward didnt fail, and the pawn is at the home row
+                    if forward_one.is_some() && position.y() == home_row_y {
+                        let offset = BoardPositionOffset::new(0, 2 * y_sign);
+                        let Some(destination) = position.add(offset) else {
+                            break 'f2 None;
+                        };
+                        // pawns may not capture forward
+                        let Ok(MovedPiece {
+                            board_delta,
+                            captured_piece: None,
+                            player,
+                            piece,
+                        }) = move_piece(&self.board, position, destination)
+                        else {
+                            break 'f2 None;
+                        };
+                        Some((
+                            board_delta,
+                            IntermediateMoveInfo {
+                                player,
+                                piece,
+                                from: position,
+                                to: destination,
+                                captured_piece: None,
+                                promotion: None,
+                                castling: None,
+                                en_passant: false,
+                                disabled_castling: (None, None),
+                                // sets en passant opportunity on the square before it
+                                set_en_passant_square: position
+                                    .add(BoardPositionOffset::new(0, y_sign)),
+                            },
+                        ))
+                    } else {
+                        None
+                    }
+                };
+                let capture = capture_offsets.into_iter().filter_map(move |offset| {
+                    let Some(destination) = position.add(offset) else {
+                        return None;
+                    };
+                    let Ok(MovedPiece {
+                        mut board_delta,
+                        captured_piece,
+                        player,
+                        piece,
+                    }) = move_piece(&self.board, position, destination)
+                    else {
+                        return None;
+                    };
+                    if let Some(piece) = captured_piece {
+                        Some((
+                            board_delta,
+                            IntermediateMoveInfo {
+                                player,
+                                piece,
+                                from: position,
+                                to: destination,
+                                captured_piece: Some((piece, destination)),
+                                promotion: None,
+                                castling: None,
+                                en_passant: false,
+                                disabled_castling: (None, None),
+                                set_en_passant_square: None,
+                            },
+                        ))
+                    } else if let Some(square) = self.state.en_passant_square
+                        && square == destination
+                    {
+                        let captured_pawn_position = square
+                            .add(BoardPositionOffset::new(0, -y_sign))
+                            .expect("En passant square invariant broken");
+                        board_delta.insert(captured_pawn_position, None);
+                        Some((
+                            board_delta,
+                            IntermediateMoveInfo {
+                                player,
+                                piece,
+                                from: position,
+                                to: destination,
+                                captured_piece: Some((ChessPiece::Pawn, captured_pawn_position)),
+                                promotion: None,
+                                castling: None,
+                                en_passant: true,
+                                disabled_castling: (None, None),
+                                set_en_passant_square: None,
+                            },
+                        ))
+                    } else {
+                        None
+                    }
+                });
+
+                return Box::new(
+                    forward_one
+                        .into_iter()
+                        .chain(forward_two)
+                        .chain(capture)
+                        .flat_map(
+                            move |(board_delta, move_info)| -> Box<
+                                dyn Iterator<Item = (DeltaChessBoard, IntermediateMoveInfo)>,
+                            > {
+                                if move_info.to.y() == promotion_y {
+                                    Box::new(
+                                        // multiply options by 4 because of promotion
+                                        [
+                                            PromotionPiece::Knight,
+                                            PromotionPiece::Bishop,
+                                            PromotionPiece::Rook,
+                                            PromotionPiece::Queen,
+                                        ]
+                                        .into_iter()
+                                        .map(
+                                            move |promotion_piece| {
+                                                let mut board_delta = board_delta.clone();
+                                                board_delta.insert(
+                                                    move_info.to,
+                                                    Some(PlayerPiece {
+                                                        player,
+                                                        piece: promotion_piece.into(),
+                                                    }),
+                                                );
+                                                (
+                                                    board_delta,
+                                                    IntermediateMoveInfo {
+                                                        promotion: Some(promotion_piece),
+                                                        ..move_info
+                                                    },
+                                                )
+                                            },
+                                        ),
+                                    )
+                                } else {
+                                    Box::new(iter::once((board_delta, move_info)))
+                                }
+                            },
+                        ),
+                );
             }
             ChessPiece::Knight => {
                 //  # #
@@ -178,10 +366,10 @@ impl GameState {
                 //   #
 
                 let directions = [
-                    BoardPositionOffset::FORWARD,
-                    BoardPositionOffset::BACKWARD,
-                    BoardPositionOffset::LEFT,
-                    BoardPositionOffset::RIGHT,
+                    BoardPositionOffset::NORTH,
+                    BoardPositionOffset::SOUTH,
+                    BoardPositionOffset::WEST,
+                    BoardPositionOffset::EAST,
                 ];
                 let can_castle = match player {
                     Player::White => self.state.white_can_castle,
@@ -244,10 +432,10 @@ impl GameState {
                     BoardPositionOffset::DIAGONAL_NW,
                     BoardPositionOffset::DIAGONAL_SW,
                     BoardPositionOffset::DIAGONAL_SE,
-                    BoardPositionOffset::FORWARD,
-                    BoardPositionOffset::BACKWARD,
-                    BoardPositionOffset::LEFT,
-                    BoardPositionOffset::RIGHT,
+                    BoardPositionOffset::NORTH,
+                    BoardPositionOffset::SOUTH,
+                    BoardPositionOffset::WEST,
+                    BoardPositionOffset::EAST,
                 ];
                 return Box::new(directions.into_iter().flat_map(move |direction| {
                     Path::new(direction, PathLength::Infinite).moves(&self.board, position)
@@ -265,10 +453,10 @@ impl GameState {
                     BoardPositionOffset::DIAGONAL_NW,
                     BoardPositionOffset::DIAGONAL_SW,
                     BoardPositionOffset::DIAGONAL_SE,
-                    BoardPositionOffset::FORWARD,
-                    BoardPositionOffset::BACKWARD,
-                    BoardPositionOffset::LEFT,
-                    BoardPositionOffset::RIGHT,
+                    BoardPositionOffset::NORTH,
+                    BoardPositionOffset::SOUTH,
+                    BoardPositionOffset::WEST,
+                    BoardPositionOffset::EAST,
                 ];
 
                 let can_castle = match player {

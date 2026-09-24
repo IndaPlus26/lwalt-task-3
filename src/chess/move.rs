@@ -1,6 +1,6 @@
 use crate::chess::{
     board::{BoardPosition, BoardPositionOffset, ChessBoard, DeltaChessBoard},
-    types::{ChessPiece, Player, PlayerPiece},
+    types::{ChessPiece, Player},
 };
 
 // check conditions for a move: If you make the move, and then make another move of the same player, you could capture the king
@@ -69,11 +69,23 @@ pub struct IntermediateMoveInfo {
     pub set_en_passant_square: Option<BoardPosition>,
 }
 
+#[derive(Copy, Clone)]
 pub enum PromotionPiece {
     Queen,
     Rook,
     Bishop,
     Knight,
+}
+
+impl From<PromotionPiece> for ChessPiece {
+    fn from(value: PromotionPiece) -> Self {
+        match value {
+            PromotionPiece::Queen => ChessPiece::Queen,
+            PromotionPiece::Rook => ChessPiece::Rook,
+            PromotionPiece::Bishop => ChessPiece::Bishop,
+            PromotionPiece::Knight => ChessPiece::Knight,
+        }
+    }
 }
 
 /// a path for a piece on a chess board, consisting of an offset with constant step size and direction

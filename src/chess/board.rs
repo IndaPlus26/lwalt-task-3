@@ -29,7 +29,7 @@ pub struct BoardPositionOffset {
 pub type ChessBoardSquare = Option<PlayerPiece>;
 
 /// A compact type of storing a change of a [`ChessBoard`], storing in only 17 bytes what would otherwise take 128
-#[derive(Eq, PartialEq, Hash)]
+#[derive(Clone, Eq, PartialEq, Hash)]
 pub struct DeltaChessBoard {
     // the max number of squares that can be changed by a single move is 4 (castling)
     store: [(BoardPosition, ChessBoardSquare); 4],
@@ -87,10 +87,10 @@ impl BoardPositionOffset {
     pub const DIAGONAL_NW: Self = Self::new(-1, 1);
     pub const DIAGONAL_SE: Self = Self::new(1, -1);
     pub const DIAGONAL_SW: Self = Self::new(-1, -1);
-    pub const FORWARD: Self = Self::new(0, 1);
-    pub const BACKWARD: Self = Self::new(0, -1);
-    pub const RIGHT: Self = Self::new(1, 0);
-    pub const LEFT: Self = Self::new(-1, 0);
+    pub const NORTH: Self = Self::new(0, 1);
+    pub const SOUTH: Self = Self::new(0, -1);
+    pub const EAST: Self = Self::new(1, 0);
+    pub const WEST: Self = Self::new(-1, 0);
 
     /// flip the x coordinate of the offset
     pub const fn mirror_x(&self) -> Self {
@@ -220,6 +220,7 @@ impl DeltaChessBoard {
         }
     }
 
+    /// overwrites the square if it already exists in the [`DeltaChessBoard`]
     pub fn insert(&mut self, position: BoardPosition, square: ChessBoardSquare) {
         if self.len == 4 {
             // you shouldnt run into this but if you do its most likely because you tried modding chess
@@ -229,10 +230,13 @@ impl DeltaChessBoard {
             panic!("DeltaChessBoard out of bounds! Read comment above panic for more info!");
         }
         // check if position already exists in O(n^2) time (for n inserts)
-        for (pos, _) in self.iter() {
-            if pos == position {
-                // shouldnt happen if there arent any bugs
-                panic!("Uniqueness invariant in DeltaChessBoard failed.");
+        for (pos, sqr) in self.iter_mut() {
+            if *pos == position {
+                // overwrite the position with the new one (useful for example in pawn promotions, overwriting
+                // a pawn to a promoted piece)
+                *sqr = square;
+                // this doesn't increase the length
+                return;
             }
         }
         self.store[self.len as usize] = (position, square);
@@ -244,6 +248,9 @@ impl DeltaChessBoard {
             delta_board: &self,
             current_index: 0,
         }
+    }
+    pub fn iter_mut(&mut self) -> DeltaChessBoardIterMut {
+        DeltaChessBoardIterMut(self.store[0..self.len as usize].iter_mut())
     }
 }
 
@@ -263,6 +270,15 @@ impl<'a> Iterator for DeltaChessBoardIter<'a> {
         let index = self.current_index as usize;
         self.current_index += 1;
         Some(self.delta_board.store[index])
+    }
+}
+pub struct DeltaChessBoardIterMut<'a>(std::slice::IterMut<'a, (BoardPosition, ChessBoardSquare)>);
+
+impl<'a> Iterator for DeltaChessBoardIterMut<'a> {
+    type Item = &'a mut (BoardPosition, ChessBoardSquare);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
     }
 }
 
