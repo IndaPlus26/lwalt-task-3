@@ -53,7 +53,7 @@ impl BoardPosition {
     pub fn to_one_indexed(&self) -> (u8, u8) {
         (self.x + 1, self.y + 1)
     }
-    /// add a board offset to the board position, returning None if it results in an invalid state
+    /// add a board offset to the board position, returning None if it lands out of bounds
     pub fn add(self, offset: BoardPositionOffset) -> Option<Self> {
         let x = self.x as i8 + offset.dx;
         let y = self.y as i8 + offset.dy;
