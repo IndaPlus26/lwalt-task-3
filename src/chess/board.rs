@@ -1,6 +1,9 @@
-use std::ops::{Add, AddAssign, Sub};
+use std::{
+    fmt::Display,
+    ops::{Add, AddAssign, Sub},
+};
 
-use crate::chess::types::{Player, PlayerPiece};
+use crate::chess::types::{ChessPiece, Player, PlayerPiece};
 
 /// the side length of a chess board
 pub const SIDE_LENGTH: usize = 8;
@@ -28,6 +31,8 @@ pub struct BoardPositionOffset {
 /// A square on a chess board
 pub type ChessBoardSquare = Option<PlayerPiece>;
 
+// maybe it storing sequentially can be a problem if it's supposed to represent a set, meaning giving different
+// eq or hash based on order. TODO implement custom Eq and Hash
 /// A compact type of storing a change of a [`ChessBoard`], storing in only 17 bytes what would otherwise take 128
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct DeltaChessBoard {
@@ -243,13 +248,13 @@ impl DeltaChessBoard {
         self.len += 1;
     }
 
-    pub fn iter(&self) -> DeltaChessBoardIter {
+    pub fn iter<'a>(&'a self) -> DeltaChessBoardIter<'a> {
         DeltaChessBoardIter {
             delta_board: &self,
             current_index: 0,
         }
     }
-    pub fn iter_mut(&mut self) -> DeltaChessBoardIterMut {
+    pub fn iter_mut<'a>(&'a mut self) -> DeltaChessBoardIterMut<'a> {
         DeltaChessBoardIterMut(self.store[0..self.len as usize].iter_mut())
     }
 }
@@ -318,6 +323,75 @@ impl Sub for BoardPosition {
         }
     }
 }
+
+impl Display for ChessBoard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for y in (SIDE_LENGTH - 1)..=0 {
+            for x in 0..SIDE_LENGTH {
+                write!(
+                    f,
+                    "{}",
+                    match self.0[x][y] {
+                        None => '#',
+                        Some(piece) => match piece {
+                            PlayerPiece {
+                                player: Player::White,
+                                piece: ChessPiece::Pawn,
+                            } => 'P',
+                            PlayerPiece {
+                                player: Player::White,
+                                piece: ChessPiece::Knight,
+                            } => 'N',
+                            PlayerPiece {
+                                player: Player::White,
+                                piece: ChessPiece::Bishop,
+                            } => 'B',
+                            PlayerPiece {
+                                player: Player::White,
+                                piece: ChessPiece::Rook,
+                            } => 'R',
+                            PlayerPiece {
+                                player: Player::White,
+                                piece: ChessPiece::Queen,
+                            } => 'Q',
+                            PlayerPiece {
+                                player: Player::White,
+                                piece: ChessPiece::King,
+                            } => 'K',
+                            PlayerPiece {
+                                player: Player::Black,
+                                piece: ChessPiece::Pawn,
+                            } => 'p',
+                            PlayerPiece {
+                                player: Player::Black,
+                                piece: ChessPiece::Knight,
+                            } => 'n',
+                            PlayerPiece {
+                                player: Player::Black,
+                                piece: ChessPiece::Bishop,
+                            } => 'b',
+                            PlayerPiece {
+                                player: Player::Black,
+                                piece: ChessPiece::Rook,
+                            } => 'r',
+                            PlayerPiece {
+                                player: Player::Black,
+                                piece: ChessPiece::Queen,
+                            } => 'q',
+                            PlayerPiece {
+                                player: Player::Black,
+                                piece: ChessPiece::King,
+                            } => 'k',
+                        },
+                    }
+                )?;
+            }
+            write!(f, "\n")?;
+        }
+        Ok(())
+    }
+}
+
 impl From<BoardPosition> for BoardPositionOffset {
     fn from(value: BoardPosition) -> Self {
         Self {

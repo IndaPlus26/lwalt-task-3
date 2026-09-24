@@ -1,8 +1,9 @@
+use std::collections::HashMap;
 use std::iter;
 
 use crate::chess::board::{BoardPosition, BoardPositionOffset, ChessBoard, DeltaChessBoard};
 use crate::chess::r#move::{
-    IntermediateMoveInfo, MoveInfo, MovedPiece, Path, PathLength, PromotionPiece, move_piece,
+    ExtendedMoveInfo, MoveInfo, MovedPiece, Path, PathLength, PromotionPiece, move_piece,
 };
 use crate::chess::types::{ChessPiece, Player, PlayerPiece};
 
@@ -18,13 +19,14 @@ pub struct ChessGame {
     /// the initial game state
     init_state: GameState,
     /// all moves made since the initial state in chronological order
-    moves: Vec<(DeltaChessBoard, MoveInfo)>,
+    moves: Vec<(DeltaChessBoard, ExtendedMoveInfo)>,
 
     // (FEATURE: maybe make all redundant sate cache lookups that just store queries from the init_board+init_state+moves instead)
     // --- redundant state for simpler computation ---
     /// this doesn't mean the game termination can't be checkmate, to check that, it is required to check if the last
     /// move was a check or not. Just to check, don't forget to check for the check.
     is_stalemate: bool,
+    valid_moves: HashMap<DeltaChessBoard, MoveInfo>,
 
     /// the current state of the game
     state: GameState,
@@ -43,9 +45,9 @@ impl GameState {
     pub fn valid_moves<'a>(
         &'a self,
         pos: BoardPosition,
-    ) -> Box<dyn Iterator<Item = (DeltaChessBoard, IntermediateMoveInfo)> + 'a> {
+    ) -> Box<dyn Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a> {
         Box::new(
-            self.quasi_valid_moves(pos)
+            self.pseudo_valid_moves(pos)
                 .filter(|(board_delta, proposed_move)| {
                     let mut board = self.board.clone();
                     board.update(&board_delta);
@@ -58,7 +60,7 @@ impl GameState {
                     let game_state = GameState { board, state }; // both update board and toggle player
                     for (_, opponent_move) in board_squares
                         .iter()
-                        .flat_map(|position| game_state.quasi_valid_moves(*position))
+                        .flat_map(|position| game_state.pseudo_valid_moves(*position))
                     {
                         // if the proposed move is a castling, and if any opponent move touches a square inbetween,
                         // the castling is invalid.
@@ -90,10 +92,10 @@ impl GameState {
 
     /// Get the unique valid moves for a piece on the board, only according to the piece's move rules, and no check rules.
     /// This means it may include invalid moves that enable the king being captured in the next move.
-    pub fn quasi_valid_moves<'a>(
+    pub fn pseudo_valid_moves<'a>(
         &'a self,
         position: BoardPosition,
-    ) -> Box<dyn Iterator<Item = (DeltaChessBoard, IntermediateMoveInfo)> + 'a> {
+    ) -> Box<dyn Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a> {
         // if the selected piece doesnt exist or belong to the player in turn
         let Some(PlayerPiece { player, piece }) = self.board.get_square(position) else {
             return Box::new(iter::empty());
@@ -140,7 +142,7 @@ impl GameState {
                     };
                     Some((
                         board_delta,
-                        IntermediateMoveInfo {
+                        MoveInfo {
                             player,
                             piece,
                             from: position,
@@ -174,7 +176,7 @@ impl GameState {
                         };
                         Some((
                             board_delta,
-                            IntermediateMoveInfo {
+                            MoveInfo {
                                 player,
                                 piece,
                                 from: position,
@@ -209,7 +211,7 @@ impl GameState {
                     if let Some(piece) = captured_piece {
                         Some((
                             board_delta,
-                            IntermediateMoveInfo {
+                            MoveInfo {
                                 player,
                                 piece,
                                 from: position,
@@ -231,7 +233,7 @@ impl GameState {
                         board_delta.insert(captured_pawn_position, None);
                         Some((
                             board_delta,
-                            IntermediateMoveInfo {
+                            MoveInfo {
                                 player,
                                 piece,
                                 from: position,
@@ -256,7 +258,7 @@ impl GameState {
                         .chain(capture)
                         .flat_map(
                             move |(board_delta, move_info)| -> Box<
-                                dyn Iterator<Item = (DeltaChessBoard, IntermediateMoveInfo)>,
+                                dyn Iterator<Item = (DeltaChessBoard, MoveInfo)>,
                             > {
                                 if move_info.to.y() == promotion_y {
                                     Box::new(
@@ -280,7 +282,7 @@ impl GameState {
                                                 );
                                                 (
                                                     board_delta,
-                                                    IntermediateMoveInfo {
+                                                    MoveInfo {
                                                         promotion: Some(promotion_piece),
                                                         ..move_info
                                                     },
@@ -322,7 +324,7 @@ impl GameState {
                     {
                         Some((
                             board_delta,
-                            IntermediateMoveInfo {
+                            MoveInfo {
                                 player,
                                 piece,
                                 from: position,
@@ -500,7 +502,7 @@ impl GameState {
                     board_delta.insert(old_rook_position, None);
                     Some((
                         board_delta,
-                        IntermediateMoveInfo {
+                        MoveInfo {
                             player,
                             piece,
                             from: position,
@@ -552,7 +554,7 @@ impl GameState {
                     board_delta.insert(old_rook_position, None);
                     Some((
                         board_delta,
-                        IntermediateMoveInfo {
+                        MoveInfo {
                             player,
                             piece,
                             from: position,
@@ -591,7 +593,7 @@ impl GameState {
                             {
                                 Some((
                                     board_delta,
-                                    IntermediateMoveInfo {
+                                    MoveInfo {
                                         player,
                                         piece,
                                         from: position,
@@ -616,6 +618,10 @@ impl GameState {
                 // add castling
             }
         }
+    }
+    /// import a game state from a chess fen (standardized compact chess position format).
+    pub fn from_fen(&self, fen: &str) -> Option<Self> {
+        todo!()
     }
 }
 
@@ -665,18 +671,20 @@ impl ChessGame {
             board: ChessBoard::start_position(),
             state: PositionState::default(),
         };
+        let valid_moves = state
+            .board
+            .squares()
+            .into_iter()
+            .flat_map(|pos| state.valid_moves(pos))
+            .collect();
         Self {
-            init_state: state.clone(),
             moves: Vec::new(),
             is_stalemate: false,
+            valid_moves,
 
+            init_state: state.clone(),
             state,
         }
-    }
-
-    /// import a chess game from a chess fen (standardized compact chess position format).
-    pub fn from_fen(&self, fen: &str) -> Option<Self> {
-        todo!()
     }
 
     /// returns None if the game has ended
@@ -693,9 +701,18 @@ impl ChessGame {
         }
     }
 
-    // TODO: make the move instead take an index of valid moves
-    // /// if the move is invalid this returns a [`MoveError`], else the move is applied
-    // pub fn try_move(&mut self, r#move: PlayerMove) -> Result<(), MoveError> {
-    //     todo!()
-    // }
+    /// if the move doesn't exist inside valid moves it will return Err(())
+    pub fn r#move(&mut self, r#move: DeltaChessBoard) -> Result<ExtendedMoveInfo, ()> {
+        let intermediate_move_info = self.valid_moves.get(&r#move).ok_or(())?;
+        // TODO: update game state and player toggle and check for check and everything
+
+        self.state.state.player_at_turn.toggle();
+        // update state based on move_info of the move, like disabling castling or whatever
+        // if intermediate_move_info.disabled_castling
+
+        // construct check results (by running the same player on the new position) and put them on moveinfo
+        let move_info: ExtendedMoveInfo = todo!();
+        self.moves.push((r#move, move_info.clone()));
+        Ok(move_info)
+    }
 }
