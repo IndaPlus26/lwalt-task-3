@@ -183,15 +183,10 @@ impl ChessBoard {
     }
 
     /// get all the possible board positions
-    // TODO: make this an iterator instead
-    pub fn squares(&self) -> Vec<BoardPosition> {
-        let mut squares = Vec::with_capacity(SIDE_LENGTH.pow(2));
-        for x in 0..SIDE_LENGTH {
-            for y in 0..SIDE_LENGTH {
-                squares.push(BoardPosition::new(x as u8, y as u8).unwrap());
-            }
-        }
-        squares
+    pub fn squares(&self) -> impl Iterator<Item = BoardPosition> {
+        (0..SIDE_LENGTH).flat_map(|x| {
+            (0..SIDE_LENGTH).map(move |y| BoardPosition::new(x as u8, y as u8).unwrap())
+        })
     }
 
     /// get all pieces of the specified player on the board

@@ -1,5 +1,3 @@
-use crate::chess::{ChessGame, types::Player};
-
 // the actual game that encapsulates the state machine and contains additional things
 
 // // TODO

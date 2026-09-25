@@ -3,7 +3,8 @@ use std::iter;
 
 use crate::chess::board::{BoardPosition, BoardPositionOffset, ChessBoard, DeltaChessBoard};
 use crate::chess::r#move::{
-    ExtendedMoveInfo, MoveInfo, MovedPiece, Path, PathLength, PromotionPiece, move_piece,
+    CheckEvent, ExtendedMoveInfo, MoveInfo, MovedPiece, Path, PathLength, PromotionPiece,
+    move_piece,
 };
 use crate::chess::types::{ChessPiece, Player, PlayerPiece};
 
@@ -17,7 +18,7 @@ pub mod types;
 /// Does not include manual terminations like resigning or offering/accepting draw
 pub struct ChessGame {
     /// the initial game state
-    init_state: GameState,
+    _init_state: GameState,
     /// all moves made since the initial state in chronological order
     moves: Vec<(DeltaChessBoard, ExtendedMoveInfo)>,
 
@@ -41,6 +42,12 @@ pub struct GameState {
 // TODO: actually for this entire codebase, refactor the code to follow the rule of every function always staying on
 // the same abstraction layer
 impl GameState {
+    pub fn all_valid_moves<'a>(
+        &'a self,
+    ) -> Box<dyn Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a> {
+        Box::new(self.board.squares().flat_map(|pos| self.valid_moves(pos)))
+    }
+
     /// Get all the unique valid moves for a piece, including with check rules
     pub fn valid_moves<'a>(
         &'a self,
@@ -56,11 +63,11 @@ impl GameState {
                     // check the opponents next valid moves
                     let mut state = self.state.clone();
                     state.player_at_turn.toggle();
-                    let board_squares = board.squares();
+                    let board_squares = board.squares().collect::<Vec<_>>();
                     let game_state = GameState { board, state }; // both update board and toggle player
                     for (_, opponent_move) in board_squares
-                        .iter()
-                        .flat_map(|position| game_state.pseudo_valid_moves(*position))
+                        .into_iter() // TODO: check if the collect can be bypassed
+                        .flat_map(|position| game_state.pseudo_valid_moves(position))
                     {
                         // if the proposed move is a castling, and if any opponent move touches a square inbetween,
                         // the castling is invalid.
@@ -623,6 +630,10 @@ impl GameState {
     pub fn from_fen(&self, fen: &str) -> Option<Self> {
         todo!()
     }
+    /// convert the game state to a chess fen
+    pub fn to_fen(&self) -> String {
+        todo!()
+    }
 }
 
 // pub fn moves_from_path(board: )
@@ -671,18 +682,13 @@ impl ChessGame {
             board: ChessBoard::start_position(),
             state: PositionState::default(),
         };
-        let valid_moves = state
-            .board
-            .squares()
-            .into_iter()
-            .flat_map(|pos| state.valid_moves(pos))
-            .collect();
+        let valid_moves = state.all_valid_moves().collect();
         Self {
             moves: Vec::new(),
             is_stalemate: false,
             valid_moves,
 
-            init_state: state.clone(),
+            _init_state: state.clone(),
             state,
         }
     }
@@ -703,16 +709,88 @@ impl ChessGame {
 
     /// if the move doesn't exist inside valid moves it will return Err(())
     pub fn r#move(&mut self, r#move: DeltaChessBoard) -> Result<ExtendedMoveInfo, ()> {
-        let intermediate_move_info = self.valid_moves.get(&r#move).ok_or(())?;
-        // TODO: update game state and player toggle and check for check and everything
+        let intermediate_move_info = self.valid_moves.remove(&r#move).ok_or(())?;
 
-        self.state.state.player_at_turn.toggle();
-        // update state based on move_info of the move, like disabling castling or whatever
-        // if intermediate_move_info.disabled_castling
+        // update board
+        let mut new_board = self.state.board.clone();
+        new_board.update(&r#move);
+        let new_position_state = self.state.state.clone();
 
-        // construct check results (by running the same player on the new position) and put them on moveinfo
-        let move_info: ExtendedMoveInfo = todo!();
-        self.moves.push((r#move, move_info.clone()));
-        Ok(move_info)
+        // check for check
+        let mut new_state = GameState {
+            board: new_board,
+            state: new_position_state,
+        };
+        let is_check = new_state
+            .board
+            .squares()
+            .flat_map(|square| new_state.pseudo_valid_moves(square))
+            .find(|(_, move_info)| {
+                move_info
+                    .captured_piece
+                    .is_some_and(|piece| piece.0 == ChessPiece::King)
+            })
+            .is_some(); // update state based on how the move changed it
+
+        let new_position_state = PositionState {
+            white_can_castle: if let Player::White = intermediate_move_info.player {
+                match intermediate_move_info.disabled_castling {
+                    (None, None) => self.state.state.white_can_castle,
+                    (None, Some(_)) => (self.state.state.white_can_castle.0, false),
+                    (Some(_), None) => (false, self.state.state.white_can_castle.1),
+                    (Some(_), Some(_)) => (false, false),
+                }
+            } else {
+                self.state.state.white_can_castle
+            },
+            black_can_castle: if let Player::Black = intermediate_move_info.player {
+                match intermediate_move_info.disabled_castling {
+                    (None, None) => self.state.state.black_can_castle,
+                    (None, Some(_)) => (self.state.state.black_can_castle.0, false),
+                    (Some(_), None) => (false, self.state.state.black_can_castle.1),
+                    (Some(_), Some(_)) => (false, false),
+                }
+            } else {
+                self.state.state.black_can_castle
+            },
+            en_passant_square: intermediate_move_info.set_en_passant_square,
+            halfmove_clock: if intermediate_move_info.piece == ChessPiece::Pawn
+                || intermediate_move_info.captured_piece.is_some()
+            {
+                0
+            } else {
+                self.state.state.halfmove_clock + 1
+            },
+            n_fullmoves: self.state.state.n_fullmoves
+                + match self.state.state.player_at_turn {
+                    Player::White => 0,
+                    Player::Black => 1,
+                },
+            player_at_turn: self.state.state.player_at_turn.toggled(),
+        };
+        new_state.state = new_position_state;
+
+        self.valid_moves.clear();
+        self.valid_moves.extend(new_state.all_valid_moves());
+
+        let stalemate = if self.valid_moves.is_empty() {
+            true
+        } else {
+            false
+        };
+        let new_move_info = ExtendedMoveInfo::new(
+            intermediate_move_info,
+            match (is_check, stalemate) {
+                (true, true) => Some(CheckEvent::Checkmate),
+                (false, true) => Some(CheckEvent::Stalemate),
+                (true, false) => Some(CheckEvent::Check),
+                (false, false) => None,
+            },
+        );
+
+        // update the rest of the state
+        self.state = new_state;
+        self.moves.push((r#move, new_move_info.clone()));
+        Ok(new_move_info)
     }
 }

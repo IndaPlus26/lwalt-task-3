@@ -50,8 +50,15 @@ pub struct ExtendedMoveInfo {
     pub disabled_castling: (Option<()>, Option<()>),
     /// if the move was a 2 step pawn move and enabled a potential en passant opportunity on the specified square behind it
     pub set_en_passant_square: Option<BoardPosition>,
-    /// if the move is a check
-    pub is_check: bool,
+    /// the check event of the move
+    pub check_event: Option<CheckEvent>,
+}
+
+#[derive(Clone)]
+pub enum CheckEvent {
+    Check,
+    Stalemate,
+    Checkmate,
 }
 
 /// Same as [`ExtendedMoveInfo`] but not containing information about check. Only for internal use
@@ -98,6 +105,24 @@ impl From<PromotionPiece> for ChessPiece {
             PromotionPiece::Rook => ChessPiece::Rook,
             PromotionPiece::Bishop => ChessPiece::Bishop,
             PromotionPiece::Knight => ChessPiece::Knight,
+        }
+    }
+}
+
+impl ExtendedMoveInfo {
+    pub fn new(move_info: MoveInfo, check_event: Option<CheckEvent>) -> Self {
+        Self {
+            player: move_info.player,
+            piece: move_info.piece,
+            from: move_info.from,
+            to: move_info.to,
+            captured_piece: move_info.captured_piece,
+            promotion: move_info.promotion,
+            castling: move_info.castling,
+            en_passant: move_info.en_passant,
+            disabled_castling: move_info.disabled_castling,
+            set_en_passant_square: move_info.set_en_passant_square,
+            check_event,
         }
     }
 }
