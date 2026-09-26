@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["GameTermination","MoveError"],"mod":["board","move","types"],"struct":["ChessGame","GameState","PositionState"]};

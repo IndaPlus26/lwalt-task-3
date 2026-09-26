@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["SIDE_LENGTH"],"mod":["board_init"],"struct":["BoardPosition","BoardPositionOffset","ChessBoard","DeltaChessBoard","DeltaChessBoardIter","DeltaChessBoardIterMut"],"type":["ChessBoardSquare"]};

@@ -1,4 +1,4 @@
-use crate::chess::{
+use crate::{
     board::{BoardPosition, ChessBoard, DeltaChessBoard},
     types::{ChessPiece, PieceType},
 };
@@ -22,33 +22,36 @@ use crate::chess::{
 // In fact, we could even make the check check only happen once a move is made, theres not really any good reason to calculate it
 // before for every potential move.
 //
-/// a redundant QOL type useful for gui, for example to show popup screens for promotions, play visual or audio effects
+/// A redundant QOL type useful for gui, for example to show popup screens for promotions, play visual or audio effects
 /// if some special moves occur or a check happens or whatever, like knowing what kind of piece got captured or something.
-/// This is to spare the poor gui implementators the work of needing to derive these purely from a board diff
+/// This is to spare the poor gui implementators the work of needing to derive these purely from diffing a chessboard
 #[derive(Clone)]
 pub struct ExtendedMoveInfo {
-    /// the piece that was moved
+    /// The piece that was moved
     pub piece: ChessPiece,
-    /// where from the piece was moved
+    /// From where the piece was moved
     pub from: BoardPosition,
-    /// where the piece was moved to
+    /// Where the piece was moved to
     pub to: BoardPosition,
-    /// if the move captures a piece, and on which position that piece used to stand
+    /// If the move captures a piece, and if so, on which position that piece used to be on
     pub captured_piece: Option<(ChessPiece, BoardPosition)>,
-    /// if the move is a promotion, contains which piece it promotes to. If implementing some kind of gui for this,
+    /// If the move is a promotion, contains which piece the pawn promoted to. If implementing some kind of gui for this,
     /// noticing multiple different valid moves to the same square with different promotion options, this might be a
     /// good time to show a popup to let the user decide which piece they want to promote to.
     pub promotion: Option<PromotionPiece>,
-    /// if castling occured, this contains the from-to positions for the rook
+    /// If castling occured, this contains the positions for the rook which moved with, more specifically Some((from, to))
     pub castling: Option<(BoardPosition, BoardPosition)>,
-    /// if the move executed was en passant
+    /// If the move executed was en passant
     pub en_passant: bool,
-    /// if the move disabled castling on any of the castling sides of the current player who executed the move.
-    /// this being None does not imply castling is enabled, just that no change occured during this move
-    pub disabled_castling: (Option<()>, Option<()>),
-    /// if the move was a 2 step pawn move and enabled a potential en passant opportunity on the specified square behind it
+    /// If the move disabled castling for white on (queen-side, king-side) respectively. This being false does not imply
+    /// castling is enabled, just that no change in castling availability happened for this move.
+    pub disabled_castling_white: (bool, bool),
+    /// If the move disabled castling for black on (queen-side, king-side) respectively. This being false does not imply
+    /// castling is enabled, just that no change in castling availability happened for this move.
+    pub disabled_castling_black: (bool, bool),
+    /// If the move was a 2 step pawn move and enabled a potential en passant opportunity on the specified square behind it
     pub set_en_passant_square: Option<BoardPosition>,
-    /// the check event of the move
+    /// If the move was some kind of check event
     pub check_event: Option<CheckEvent>,
 }
 
@@ -60,32 +63,36 @@ pub enum CheckEvent {
 }
 
 /// Same as [`ExtendedMoveInfo`] but not containing information about check. Only for internal use
-/// representating the transition stage before a real [`ExtendedMoveInfo`] is created
+/// representating the transitional stage before a real [`ExtendedMoveInfo`] is created
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MoveInfo {
-    /// the piece that was moved
+    /// The piece that was moved
     pub piece: ChessPiece,
-    /// where from the piece was moved
+    /// From where the piece was moved
     pub from: BoardPosition,
-    /// where the piece was moved to
+    /// Where the piece was moved to
     pub to: BoardPosition,
-    /// if the move captures a piece, and on which position that piece used to stand
+    /// If the move captures a piece, and if so, on which position that piece used to be on
     pub captured_piece: Option<(ChessPiece, BoardPosition)>,
-    /// if the move is a promotion, contains which piece it promotes to. If implementing some kind of gui for this,
+    /// If the move is a promotion, contains which piece the pawn promoted to. If implementing some kind of gui for this,
     /// noticing multiple different valid moves to the same square with different promotion options, this might be a
     /// good time to show a popup to let the user decide which piece they want to promote to.
     pub promotion: Option<PromotionPiece>,
-    /// if castling occured, this contains the from-to positions for the rook
+    /// If castling occured, this contains the positions for the rook which moved with, more specifically Some((from, to))
     pub castling: Option<(BoardPosition, BoardPosition)>,
-    /// if the move executed was en passant
+    /// If the move executed was en passant
     pub en_passant: bool,
-    /// if the move disabled castling on any of the castling sides of the current player who executed the move.
-    /// this being None does not imply castling is enabled, just that no change occured during this move
-    pub disabled_castling: (Option<()>, Option<()>),
-    /// if the move was a 2 step pawn move and enabled a potential en passant opportunity on the specified square behind it
+    /// If the move disabled castling for white on (queen-side, king-side) respectively. This being false does not imply
+    /// castling is enabled, just that no change in castling availability happened.
+    pub disabled_castling_white: (bool, bool),
+    /// If the move disabled castling for white on (queen-side, king-side) respectively. This being false does not imply
+    /// castling is enabled, just that no change in castling availability happened.
+    pub disabled_castling_black: (bool, bool),
+    /// If the move was a 2 step pawn move and enabled a potential en passant opportunity on the specified square behind it
     pub set_en_passant_square: Option<BoardPosition>,
 }
 
+/// A piece that a pawn can promote to
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum PromotionPiece {
     Queen,
@@ -115,7 +122,8 @@ impl ExtendedMoveInfo {
             promotion: move_info.promotion,
             castling: move_info.castling,
             en_passant: move_info.en_passant,
-            disabled_castling: move_info.disabled_castling,
+            disabled_castling_white: move_info.disabled_castling_white,
+            disabled_castling_black: move_info.disabled_castling_black,
             set_en_passant_square: move_info.set_en_passant_square,
             check_event,
         }
@@ -127,18 +135,16 @@ pub struct PieceDoesNotExist;
 
 /// A type representing a piece having moved from one square to another
 pub struct MovedPiece {
-    // /// The piece which moved
-    // pub moved_piece: ChessPiece,
     /// The delta chess board that represents the move
     pub board_delta: DeltaChessBoard,
-    /// Optionally the piece it replaced on the destination square
+    /// The piece it replaced on the destination square, if it did
     pub replaced_piece: Option<ChessPiece>,
 }
 
 /// Get a representation of a piece that has moved (or teleported) from an origin square to a destination.
 /// Only accounts for direct teleport moves, aka a piece teleporting to the specified destination
 /// Will not account for color of the piece replaced, and a check for capture or if the move is valid must
-/// be done outside this function
+/// be done outside this function.
 pub fn move_piece(
     board: &ChessBoard,
     origin: BoardPosition,

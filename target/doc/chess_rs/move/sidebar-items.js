@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CheckEvent","PromotionPiece"],"fn":["move_piece"],"struct":["ExtendedMoveInfo","MoveInfo","MovedPiece","PieceDoesNotExist"]};

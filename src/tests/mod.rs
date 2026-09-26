@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::chess::{
+use crate::{
     ChessGame, GameState, PositionState,
     board::{BoardPosition, ChessBoard, DeltaChessBoard},
     r#move::{MoveInfo, PromotionPiece},
@@ -9,7 +9,7 @@ use crate::chess::{
 
 #[test]
 fn valid_moves_capture() {
-    use crate::chess::board::board_init::*;
+    use crate::board::board_init::*;
     let board = ChessBoard::from_rotated([
         [EE, EE, EE, EE, EE, EE, EE, WN],
         [EE, EE, EE, EE, EE, EE, EE, EE],
@@ -52,7 +52,8 @@ fn valid_moves_capture() {
             promotion: None,
             castling: None,
             en_passant: false,
-            disabled_castling: (None, None),
+            disabled_castling_white: (false, false),
+            disabled_castling_black: (false, false),
             set_en_passant_square: None,
         };
         (delta_board, move_info)
@@ -71,7 +72,8 @@ fn valid_moves_capture() {
             promotion: None,
             castling: None,
             en_passant: false,
-            disabled_castling: (None, None),
+            disabled_castling_white: (false, false),
+            disabled_castling_black: (false, false),
             set_en_passant_square: Some(BoardPosition::new(1, 2).unwrap()),
         };
         (delta_board, move_info)
@@ -90,7 +92,8 @@ fn valid_moves_capture() {
             promotion: None,
             castling: None,
             en_passant: false,
-            disabled_castling: (None, None),
+            disabled_castling_white: (false, false),
+            disabled_castling_black: (false, false),
             set_en_passant_square: None,
         };
         (delta_board, move_info)
@@ -109,7 +112,8 @@ fn valid_moves_capture() {
             promotion: None,
             castling: None,
             en_passant: false,
-            disabled_castling: (None, None),
+            disabled_castling_white: (false, false),
+            disabled_castling_black: (false, false),
             set_en_passant_square: None,
         };
         (delta_board, move_info)
@@ -147,7 +151,8 @@ fn valid_moves_capture() {
             promotion: None,
             castling: None,
             en_passant: false,
-            disabled_castling: (None, None),
+            disabled_castling_white: (false, false),
+            disabled_castling_black: (false, false),
             set_en_passant_square: None,
         };
         (delta_board, move_info)
@@ -158,7 +163,7 @@ fn valid_moves_capture() {
 
 #[test]
 fn valid_moves_castling() {
-    use crate::chess::board::board_init::*;
+    use crate::board::board_init::*;
     let board = ChessBoard::from_rotated([
         [BR, BN, BB, BQ, BK, BB, BN, BR],
         [BP, BP, BP, BP, BP, BP, BP, BP],
@@ -199,7 +204,8 @@ fn valid_moves_castling() {
             promotion: None,
             castling: Some((rook_origin, rook_destination)),
             en_passant: false,
-            disabled_castling: (Some(()), Some(())),
+            disabled_castling_white: (true, true),
+            disabled_castling_black: (false, false),
             set_en_passant_square: None,
         };
         (delta_board, move_info)
@@ -223,7 +229,8 @@ fn valid_moves_castling() {
             promotion: None,
             castling: Some((rook_origin, rook_destination)),
             en_passant: false,
-            disabled_castling: (Some(()), Some(())),
+            disabled_castling_white: (true, true),
+            disabled_castling_black: (false, false),
             set_en_passant_square: None,
         };
         (delta_board, move_info)
@@ -244,7 +251,7 @@ fn valid_moves_castling() {
 
 #[test]
 fn chess_board_rotation() {
-    use crate::chess::board::board_init::*;
+    use crate::board::board_init::*;
 
     //    [r n b q k b n r]
     //    [p p p p p p p p]
@@ -289,7 +296,7 @@ fn chess_board_rotation() {
 }
 #[test]
 fn promotion() {
-    use crate::chess::board::board_init::*;
+    use crate::board::board_init::*;
     let board = ChessBoard::from_rotated([
         [EE, EE, BR, BR, EE, EE, EE, EE],
         [EE, EE, EE, WP, EE, EE, EE, EE],
@@ -341,7 +348,8 @@ fn promotion() {
             promotion: Some(prom_piece),
             castling: None,
             en_passant: false,
-            disabled_castling: (None, None),
+            disabled_castling_white: (false, false),
+            disabled_castling_black: (false, false),
             set_en_passant_square: None,
         };
         (delta_board, move_info)
@@ -355,7 +363,7 @@ fn promotion() {
 }
 #[test]
 fn en_passant() {
-    use crate::chess::board::board_init::*;
+    use crate::board::board_init::*;
     let board = ChessBoard::from_rotated([
         [EE, EE, EE, EE, EE, EE, EE, EE],
         [EE, EE, EE, EE, EE, EE, EE, EE],
@@ -399,7 +407,8 @@ fn en_passant() {
             promotion: None,
             castling: None,
             en_passant: true,
-            disabled_castling: (None, None),
+            disabled_castling_white: (false, false),
+            disabled_castling_black: (false, false),
             set_en_passant_square: None,
         };
 

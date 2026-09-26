@@ -3,14 +3,14 @@ use std::{
     ops::{Add, AddAssign, Mul, Sub},
 };
 
-use crate::chess::types::{ChessPiece, Color, PieceType};
+use crate::types::{ChessPiece, Color, PieceType};
 
-/// the side length of a chess board
+/// The side length of a chess board
 pub const SIDE_LENGTH: usize = 8;
 
-/// A chess board. Does not encode any rules, but is freely changable
-/// Stores the squares such that indexing becomes coordinates, meaning the first array is the first vertical row to the left,
-/// and goes upwards
+/// A chess board. Does not encode any rules, but is freely changable.
+/// Stores the squares such that indexing becomes coordinates, meaning the first array is the first column to the left,
+/// and the row index goes upwards. These are natural zero-indexed coordinates.
 #[derive(Clone)]
 pub struct ChessBoard(pub [[ChessBoardSquare; SIDE_LENGTH]; SIDE_LENGTH]);
 
@@ -21,7 +21,7 @@ pub struct BoardPosition {
     y: u8,
 }
 
-/// a type representing an offset in a board position
+/// A type representing an offset in a board position
 #[derive(Debug, Copy, Clone)]
 pub struct BoardPositionOffset {
     dx: i8,
@@ -31,7 +31,7 @@ pub struct BoardPositionOffset {
 /// A square on a chess board
 pub type ChessBoardSquare = Option<ChessPiece>;
 
-/// A compact type of storing a change of a [`ChessBoard`], storing in only 17 bytes what would otherwise take 128
+/// A compact type representing a change of a [`ChessBoard`], storing in only 17 bytes what would otherwise take 128
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct DeltaChessBoard {
     // the max number of squares that can be changed by a single move is 4 (castling)
@@ -40,7 +40,7 @@ pub struct DeltaChessBoard {
 }
 
 impl BoardPosition {
-    /// returns None if the coordinates are out of bounds
+    /// Returns None if the coordinates are out of bounds
     pub fn new(x: u8, y: u8) -> Option<Self> {
         if x >= SIDE_LENGTH as u8 || y >= SIDE_LENGTH as u8 {
             None
@@ -48,15 +48,16 @@ impl BoardPosition {
             Some(Self { x, y })
         }
     }
-    /// creates a board position from one-indexed coordinates, and returns None if out of bounds
+    /// Creates a board position from one-indexed coordinates, and returns None if out of bounds
     pub fn from_one_indexed(x: u8, y: u8) -> Option<Self> {
         Self::new(x.checked_sub(1)?, y.checked_sub(1)?)
     }
-    /// converts the board position from zero-indexed to one-indexed coordinates
+    /// Converts the board position from zero-indexed to one-indexed coordinates
     pub fn to_one_indexed(&self) -> (u8, u8) {
         (self.x + 1, self.y + 1)
     }
-    /// get the chess representation of a coordinate
+    /// Get the chess representation of a coordinate.
+    /// For example (3,7) yields "d8", and (0, 1) yields "a2"
     pub fn chess_display(&self) -> String {
         let char1 = match self.x {
             0 => 'a',
@@ -73,7 +74,7 @@ impl BoardPosition {
         format!("{char1}{char2}")
     }
 
-    /// add a board offset to the board position, returning None if it lands out of bounds
+    /// Add a board offset to the board position, returning None if it lands out of bounds
     pub fn add(self, offset: BoardPositionOffset) -> Option<Self> {
         let x = self.x as i8 + offset.dx;
         let y = self.y as i8 + offset.dy;
@@ -87,11 +88,11 @@ impl BoardPosition {
         }
     }
 
-    /// get the x coordinate
+    /// Get the x coordinate
     pub fn x(&self) -> u8 {
         self.x
     }
-    /// get the y coordinate
+    /// Get the y coordinate
     pub fn y(&self) -> u8 {
         self.y
     }
@@ -112,35 +113,35 @@ impl BoardPositionOffset {
     pub const EAST: Self = Self::new(1, 0);
     pub const WEST: Self = Self::new(-1, 0);
 
-    /// flip the x coordinate of the offset
+    /// Flip the x coordinate of the offset
     pub const fn mirror_x(&self) -> Self {
         Self {
             dx: -self.dx,
             dy: self.dy,
         }
     }
-    /// flip the y coordinate of the offset
+    /// Flip the y coordinate of the offset
     pub const fn mirror_y(&self) -> Self {
         Self {
             dx: self.dx,
             dy: -self.dy,
         }
     }
-    /// rotate the offset 90 degrees right
-    pub const fn rotate_right(&self) -> Self {
+    /// Rotate the offset 90 degrees clockwise
+    pub const fn rotate_clockwise(&self) -> Self {
         Self {
             dx: self.dy,
             dy: -self.dx,
         }
     }
-    /// rotate the offset 90 degrees left
-    pub const fn rotate_left(&self) -> Self {
+    /// Rotate the offset 90 degrees counterclockwise
+    pub const fn rotate_counterclockwise(&self) -> Self {
         Self {
             dx: -self.dy,
             dy: self.dx,
         }
     }
-    /// rotate the offset 180 degrees
+    /// Rotate the offset 180 degrees
     pub const fn rotate_180(&self) -> Self {
         Self {
             dx: -self.dx,
@@ -150,10 +151,10 @@ impl BoardPositionOffset {
 }
 
 impl ChessBoard {
-    /// an empty chess board with no pieces on it
+    /// An empty chess board with no pieces on it
     pub const EMPTY: Self = Self([[None; SIDE_LENGTH]; SIDE_LENGTH]);
 
-    /// create a chess board with the standard chess starting position
+    /// Create a chess board with the standard chess starting position
     pub const fn start_position() -> Self {
         use board_init::*;
         Self::from_rotated([
@@ -168,8 +169,36 @@ impl ChessBoard {
         ])
     }
 
-    /// construct a chess board from an array of arrays, and rotate it so it matches the
-    /// right indexing. Useful when defining constant chess boards in code
+    /// Construct a chess board from an array of arrays, and rotate it so it matches the
+    /// right indexing. Useful when defining constant chess boards in code.
+    ///
+    /// # Example
+    /// ```rust
+    ///    use chess_rs::board::ChessBoard;
+    ///    use chess_rs::board::board_init::*;
+    ///
+    ///    let board = ChessBoard::from_rotated([
+    ///        [BR, BN, BB, BQ, BK, BB, BN, BR],
+    ///        [BP, BP, BP, BP, BP, BP, BP, BP],
+    ///        [EE, EE, EE, EE, EE, EE, EE, EE],
+    ///        [EE, EE, EE, EE, EE, EE, EE, EE],
+    ///        [EE, EE, EE, EE, EE, EE, EE, EE],
+    ///        [EE, EE, EE, EE, EE, EE, EE, EE],
+    ///        [WP, WP, WP, WP, WP, WP, WP, WP],
+    ///        [WR, WN, WB, WQ, WK, WB, WN, WR],
+    ///    ]);
+    ///    let result = [
+    ///        [WR, WP, EE, EE, EE, EE, BP, BR],
+    ///        [WN, WP, EE, EE, EE, EE, BP, BN],
+    ///        [WB, WP, EE, EE, EE, EE, BP, BB],
+    ///        [WQ, WP, EE, EE, EE, EE, BP, BQ],
+    ///        [WK, WP, EE, EE, EE, EE, BP, BK],
+    ///        [WB, WP, EE, EE, EE, EE, BP, BB],
+    ///        [WN, WP, EE, EE, EE, EE, BP, BN],
+    ///        [WR, WP, EE, EE, EE, EE, BP, BR],
+    ///    ];
+    ///    assert_eq!(board.0, result);
+    /// ```
     pub const fn from_rotated(mut rotated: [[ChessBoardSquare; SIDE_LENGTH]; SIDE_LENGTH]) -> Self {
         //    [r n b q k b n r]
         //    [p p p p p p p p]
@@ -210,34 +239,35 @@ impl ChessBoard {
         Self(rotated)
     }
 
-    /// get the square at the specified position
+    /// Get the square at the specified position
     pub fn get_square(&self, position: BoardPosition) -> ChessBoardSquare {
         self.0[position.x as usize][position.y as usize]
     }
 
-    /// get all the possible board positions
+    /// Get all the possible board positions
     pub fn squares(&self) -> impl Iterator<Item = BoardPosition> {
         (0..SIDE_LENGTH).flat_map(|x| {
             (0..SIDE_LENGTH).map(move |y| BoardPosition::new(x as u8, y as u8).unwrap())
         })
     }
 
-    /// get all pieces of the specified color on the board
-    pub fn get_player_pieces(&self, color: Color) -> Vec<(&ChessPiece, BoardPosition)> {
-        let mut pieces = Vec::new();
-        for (x, column) in self.0.iter().enumerate() {
-            for (y, piece) in column.iter().enumerate() {
-                if let Some(piece) = piece
-                    && piece.color == color
-                {
-                    pieces.push((piece, BoardPosition::new(x as u8, y as u8).unwrap()))
-                }
-            }
-        }
-        pieces
+    /// Get all pieces of the specified color on the board
+    pub fn get_player_pieces(
+        &self,
+        color: Color,
+    ) -> impl Iterator<Item = (ChessPiece, BoardPosition)> {
+        self.squares()
+            .filter_map(move |pos| match self.get_square(pos) {
+                Some(
+                    piece @ ChessPiece {
+                        color: piece_color, ..
+                    },
+                ) if piece_color == color => Some((piece, pos)),
+                _ => None,
+            })
     }
 
-    /// update the chess board from a [`DeltaChessBoard`] describing the changes
+    /// Update the chess board from a [`DeltaChessBoard`]
     pub fn update(&mut self, delta: &DeltaChessBoard) {
         for (pos, square) in delta.iter() {
             self.0[pos.x as usize][pos.y as usize] = square;
@@ -253,7 +283,8 @@ impl DeltaChessBoard {
         }
     }
 
-    /// overwrites the square if it already exists in the [`DeltaChessBoard`]
+    /// Insert a square in the [`DeltaChessBoard`]
+    /// If a square at the position already exists in the [`DeltaChessBoard`] its contents will be overwritten
     pub fn insert(&mut self, position: BoardPosition, square: ChessBoardSquare) {
         match (&mut self.store[..self.len as usize])
             .binary_search_by_key(&position, |(pos, _)| *pos)
@@ -452,59 +483,71 @@ impl Default for BoardPosition {
     }
 }
 
-/// shorthand piece constants to make defining hardcoded board positions in code simpler
+/// Shorthand piece constants to make defining hardcoded board positions in code simpler
 pub mod board_init {
-    use crate::chess::types::PieceType;
+    use crate::types::PieceType;
 
     use super::*;
 
     /// An empty square
     pub const EE: ChessBoardSquare = None;
 
+    /// A square containing a black king
     pub const BK: ChessBoardSquare = Some(ChessPiece {
         color: Color::Black,
         r#type: PieceType::King,
     });
+    /// A square containing a white king
     pub const WK: ChessBoardSquare = Some(ChessPiece {
         color: Color::White,
         r#type: PieceType::King,
     });
+    /// A square containing a black queen
     pub const BQ: ChessBoardSquare = Some(ChessPiece {
         color: Color::Black,
         r#type: PieceType::Queen,
     });
+    /// A square containing a white queen
     pub const WQ: ChessBoardSquare = Some(ChessPiece {
         color: Color::White,
         r#type: PieceType::Queen,
     });
+    /// A square containing a black rook
     pub const BR: ChessBoardSquare = Some(ChessPiece {
         color: Color::Black,
         r#type: PieceType::Rook,
     });
+    /// A square containing a white rook
     pub const WR: ChessBoardSquare = Some(ChessPiece {
         color: Color::White,
         r#type: PieceType::Rook,
     });
+    /// A square containing a black bishop
     pub const BB: ChessBoardSquare = Some(ChessPiece {
         color: Color::Black,
         r#type: PieceType::Bishop,
     });
+    /// A square containing a white bishop
     pub const WB: ChessBoardSquare = Some(ChessPiece {
         color: Color::White,
         r#type: PieceType::Bishop,
     });
+    /// A square containing a black knight
     pub const BN: ChessBoardSquare = Some(ChessPiece {
         color: Color::Black,
         r#type: PieceType::Knight,
     });
+    /// A square containing a white knight
     pub const WN: ChessBoardSquare = Some(ChessPiece {
         color: Color::White,
         r#type: PieceType::Knight,
     });
+    /// A square containing a black pawn
     pub const BP: ChessBoardSquare = Some(ChessPiece {
         color: Color::Black,
         r#type: PieceType::Pawn,
     });
+    /// A square containing a white pawn
     pub const WP: ChessBoardSquare = Some(ChessPiece {
         color: Color::White,
         r#type: PieceType::Pawn,

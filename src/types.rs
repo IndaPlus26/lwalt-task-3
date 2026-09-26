@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+/// The type of a chess piece
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum PieceType {
     Pawn,
@@ -10,6 +11,7 @@ pub enum PieceType {
     King,
 }
 
+/// The color of a chess piece, also representing a player
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Color {
     White,
@@ -17,11 +19,12 @@ pub enum Color {
 }
 
 impl Color {
+    /// Toggle the color, aka make it the opposite color
     pub fn toggle(&mut self) {
         *self = self.toggled();
     }
 
-    /// get the opposite player
+    /// Get the toggled color, aka opposite color
     pub fn toggled(self) -> Self {
         match self {
             Color::White => Color::Black,
@@ -30,7 +33,7 @@ impl Color {
     }
 }
 
-/// A piece belonging to a specific player
+/// A chess piece with a color and a type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ChessPiece {
     pub color: Color,

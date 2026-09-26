@@ -1,1 +1,4 @@
-/target
+/target/*
+!/target/doc/
+/target/doc/*
+!/target/doc/chess_rs/
