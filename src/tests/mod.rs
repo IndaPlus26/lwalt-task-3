@@ -292,7 +292,7 @@ fn chess_board_rotation() {
     ];
 
     // println!("{board}");
-    assert_eq!(board.0, result);
+    assert_eq!(board.inner(), &result);
 }
 #[test]
 fn promotion() {

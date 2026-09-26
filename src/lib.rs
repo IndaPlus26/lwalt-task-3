@@ -1,4 +1,4 @@
-//! A blazingly fast chess engine library written in rust
+//! A chess engine library written in rust
 
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -51,8 +51,8 @@ pub enum GameTermination {
     FiftyMoveRule,
 }
 
-// TODO: actually for this entire codebase, refactor the code to follow the rule of every function always staying on
-// the same abstraction layer
+// TODO: refactor and look over the code in the entire codebase to follow the rule of every function
+// always staying on the same abstraction layer
 impl GameState {
     /// Get all the unique valid moves at a certain position
     pub fn all_valid_moves<'a>(
@@ -941,6 +941,21 @@ impl ChessGame {
             valid_moves,
             state,
         }
+    }
+
+    /// Get the chess board
+    pub fn board(&self) -> &ChessBoard {
+        &self.state.board
+    }
+
+    /// Get the position state
+    pub fn state(&self) -> &PositionState {
+        &self.state.state
+    }
+
+    /// Get whether the chess game is terminated
+    pub fn termination(&self) -> &Option<GameTermination> {
+        &self.game_termination
     }
 
     /// Get all valid moves

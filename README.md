@@ -1,6 +1,6 @@
 # Chess Engine
 
-This is a blazingly fast chess engine library written in Rust.
+This is a chess engine library written in Rust.
 It aims to be a complete, bug-free implementation of all chess rules.
 
 ## Docs

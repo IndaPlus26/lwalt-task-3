@@ -13,7 +13,7 @@ pub const SIDE_LENGTH: usize = 8;
 /// Stores the squares such that indexing becomes coordinates, meaning the first array is the first column to the left,
 /// and the row index goes upwards. These are natural zero-indexed coordinates.
 #[derive(Clone)]
-pub struct ChessBoard(pub [[ChessBoardSquare; SIDE_LENGTH]; SIDE_LENGTH]);
+pub struct ChessBoard([[ChessBoardSquare; SIDE_LENGTH]; SIDE_LENGTH]);
 
 /// A zero-indexed position on the chess board
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -199,7 +199,7 @@ impl ChessBoard {
     ///        [WN, WP, EE, EE, EE, EE, BP, BN],
     ///        [WR, WP, EE, EE, EE, EE, BP, BR],
     ///    ];
-    ///    assert_eq!(board.0, result);
+    ///    assert_eq!(board.inner(), &result);
     /// ```
     pub const fn from_rotated(mut rotated: [[ChessBoardSquare; SIDE_LENGTH]; SIDE_LENGTH]) -> Self {
         //    [r n b q k b n r]
@@ -239,6 +239,11 @@ impl ChessBoard {
             n_y += 1;
         }
         Self(rotated)
+    }
+
+    /// Get the inner array representation of the chess board
+    pub fn inner(&self) -> &[[ChessBoardSquare; SIDE_LENGTH]; SIDE_LENGTH] {
+        &self.0
     }
 
     /// Get the square at the specified position
