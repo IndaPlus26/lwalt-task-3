@@ -9,6 +9,7 @@ use crate::types::{ChessPiece, Color, PieceType};
 pub const SIDE_LENGTH: usize = 8;
 
 /// A chess board. Does not encode any rules, but is freely changable.
+///
 /// Stores the squares such that indexing becomes coordinates, meaning the first array is the first column to the left,
 /// and the row index goes upwards. These are natural zero-indexed coordinates.
 #[derive(Clone)]
@@ -57,6 +58,7 @@ impl BoardPosition {
         (self.x + 1, self.y + 1)
     }
     /// Get the chess representation of a coordinate.
+    ///
     /// For example (3,7) yields "d8", and (0, 1) yields "a2"
     pub fn chess_display(&self) -> String {
         let char1 = match self.x {
@@ -284,6 +286,7 @@ impl DeltaChessBoard {
     }
 
     /// Insert a square in the [`DeltaChessBoard`]
+    ///
     /// If a square at the position already exists in the [`DeltaChessBoard`] its contents will be overwritten
     pub fn insert(&mut self, position: BoardPosition, square: ChessBoardSquare) {
         match (&mut self.store[..self.len as usize])

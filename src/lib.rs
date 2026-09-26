@@ -18,11 +18,12 @@ pub mod types;
 mod tests;
 
 /// A state machine for a chess game
+///
 /// Does not include manual terminations like resigning or offering/accepting draw
 pub struct ChessGame {
-    /// the initial game state
+    /// The initial game state
     _init_state: GameState,
-    /// all moves made since the initial state in chronological order
+    /// All moves made since the initial state in chronological order
     moves: Vec<(DeltaChessBoard, ExtendedMoveInfo)>,
 
     // (FEATURE: maybe make all redundant sate cache lookups that just store queries from the init_board+init_state+moves instead)
@@ -30,7 +31,7 @@ pub struct ChessGame {
     game_termination: Option<GameTermination>,
     valid_moves: HashMap<DeltaChessBoard, MoveInfo>,
 
-    /// the current state of the game
+    /// The current state of the game
     state: GameState,
 }
 
@@ -44,7 +45,7 @@ pub struct GameState {
 /// A type describing all kinds of terminations of a chess game
 #[derive(Clone)]
 pub enum GameTermination {
-    /// contains the player who won
+    /// Contains the player who won
     CheckMate(Color),
     StaleMate,
     FiftyMoveRule,
@@ -118,7 +119,9 @@ impl GameState {
     }
 
     /// Get all the unique valid moves for a piece at a certain position, not including check rules
+    ///
     /// This means it may include invalid moves that enable the king being captured in the next move.
+    ///
     /// For check rules included, use [`Self::valid_moves`]
     pub fn pseudo_valid_moves<'a>(
         &'a self,
@@ -143,6 +146,7 @@ impl GameState {
         }
     }
     /// Import a game state from a fen string (standardized compact chess position format).
+    ///
     /// This is not implemented and will panic.
     pub fn from_fen(&self, _fen: &str) -> Option<Self> {
         todo!()
@@ -1000,6 +1004,7 @@ impl ChessGame {
     }
 
     /// Perform a move on the chess game. If the move is invalid or the game has ended, this will return an error.
+    ///
     /// Will otherwise return the information of the move, and whether the game terminated after the move
     pub fn r#move(
         &mut self,

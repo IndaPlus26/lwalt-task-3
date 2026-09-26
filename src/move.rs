@@ -24,6 +24,7 @@ use crate::{
 //
 /// A redundant QOL type useful for gui, for example to show popup screens for promotions, play visual or audio effects
 /// if some special moves occur or a check happens or whatever, like knowing what kind of piece got captured or something.
+///
 /// This is to spare the poor gui implementators the work of needing to derive these purely from diffing a chessboard
 #[derive(Clone)]
 pub struct ExtendedMoveInfo {
@@ -142,7 +143,9 @@ pub struct MovedPiece {
 }
 
 /// Get a representation of a piece that has moved (or teleported) from an origin square to a destination.
-/// Only accounts for direct teleport moves, aka a piece teleporting to the specified destination
+///
+/// Only accounts for direct teleport moves, aka a piece teleporting to the specified destination.
+///
 /// Will not account for color of the piece replaced, and a check for capture or if the move is valid must
 /// be done outside this function.
 pub fn move_piece(

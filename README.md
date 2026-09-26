@@ -3,6 +3,9 @@
 This is a blazingly fast chess engine library written in Rust.
 It aims to be a complete, bug-free implementation of all chess rules.
 
+## Docs
+Docs can be found here: [./doc/chess_rs/index.html](./doc/chess_rs/index.html).
+
 ## Testing
 To test the library, run the following command in this directory
 ```bash
