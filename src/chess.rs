@@ -6,7 +6,7 @@ use crate::chess::r#move::{
     CheckEvent, ExtendedMoveInfo, MoveInfo, MovedPiece, Path, PathLength, PromotionPiece,
     move_piece,
 };
-use crate::chess::types::{ChessPiece, Player, PlayerPiece};
+use crate::chess::types::{ChessPiece, PieceType, Player};
 
 pub mod board;
 pub mod r#move;
@@ -24,9 +24,7 @@ pub struct ChessGame {
 
     // (FEATURE: maybe make all redundant sate cache lookups that just store queries from the init_board+init_state+moves instead)
     // --- redundant state for simpler computation ---
-    /// this doesn't mean the game termination can't be checkmate, to check that, it is required to check if the last
-    /// move was a check or not. Just to check, don't forget to check for the check.
-    is_stalemate: bool,
+    game_termination: Option<GameTermination>,
     valid_moves: HashMap<DeltaChessBoard, MoveInfo>,
 
     /// the current state of the game
@@ -37,6 +35,14 @@ pub struct ChessGame {
 pub struct GameState {
     board: ChessBoard,
     state: PositionState,
+}
+
+#[derive(Clone)]
+pub enum GameTermination {
+    /// contains the player who won
+    CheckMate(Player),
+    StaleMate,
+    FiftyMoveRule,
 }
 
 // TODO: actually for this entire codebase, refactor the code to follow the rule of every function always staying on
@@ -63,10 +69,10 @@ impl GameState {
                     // check the opponents next valid moves
                     let mut state = self.state.clone();
                     state.player_at_turn.toggle();
-                    let board_squares = board.squares().collect::<Vec<_>>();
                     let game_state = GameState { board, state }; // both update board and toggle player
-                    for (_, opponent_move) in board_squares
-                        .into_iter() // TODO: check if the collect can be bypassed
+                    for (_, opponent_move) in game_state
+                        .board
+                        .squares()
                         .flat_map(|position| game_state.pseudo_valid_moves(position))
                     {
                         // if the proposed move is a castling, and if any opponent move touches a square inbetween,
@@ -88,7 +94,14 @@ impl GameState {
                         }
 
                         // if an opponent move captures your king, the proposed move is invalid and filtered out
-                        if let Some((ChessPiece::King, _)) = opponent_move.captured_piece {
+                        if let Some((
+                            ChessPiece {
+                                r#type: PieceType::King,
+                                ..
+                            },
+                            _,
+                        )) = opponent_move.captured_piece
+                        {
                             return false;
                         }
                     }
@@ -104,26 +117,28 @@ impl GameState {
         position: BoardPosition,
     ) -> Box<dyn Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a> {
         // if the selected piece doesnt exist or belong to the player in turn
-        let Some(PlayerPiece { player, piece }) = self.board.get_square(position) else {
+        let Some(piece) = self.board.get_square(position) else {
             return Box::new(iter::empty());
         };
-        if player != self.state.player_at_turn {
+        let ChessPiece { color, r#type } = piece;
+
+        if color != self.state.player_at_turn {
             return Box::new(iter::empty());
         }
         // i know this match statement is a nightmare dont remind me
         // my code here is so inelegant it makes me really frustrated, i need to elegantize it: TODO
-        match piece {
+        match r#type {
             // make this in the case of promotion return one move for every promotion variant, such that only the DeltaChessBoard differs
-            ChessPiece::Pawn => {
-                let y_sign = match player {
+            PieceType::Pawn => {
+                let y_sign = match color {
                     Player::White => 1,
                     Player::Black => -1,
                 };
-                let promotion_y = match player {
+                let promotion_y = match color {
                     Player::White => 7,
                     Player::Black => 0,
                 };
-                let home_row_y = match player {
+                let home_row_y = match color {
                     Player::White => 1,
                     Player::Black => 6,
                 };
@@ -141,7 +156,6 @@ impl GameState {
                     let Ok(MovedPiece {
                         board_delta,
                         captured_piece: None,
-                        player,
                         piece,
                     }) = move_piece(&self.board, position, destination)
                     else {
@@ -150,7 +164,6 @@ impl GameState {
                     Some((
                         board_delta,
                         MoveInfo {
-                            player,
                             piece,
                             from: position,
                             to: destination,
@@ -175,7 +188,6 @@ impl GameState {
                         let Ok(MovedPiece {
                             board_delta,
                             captured_piece: None,
-                            player,
                             piece,
                         }) = move_piece(&self.board, position, destination)
                         else {
@@ -184,7 +196,6 @@ impl GameState {
                         Some((
                             board_delta,
                             MoveInfo {
-                                player,
                                 piece,
                                 from: position,
                                 to: destination,
@@ -209,7 +220,6 @@ impl GameState {
                     let Ok(MovedPiece {
                         mut board_delta,
                         captured_piece,
-                        player,
                         piece,
                     }) = move_piece(&self.board, position, destination)
                     else {
@@ -219,7 +229,6 @@ impl GameState {
                         Some((
                             board_delta,
                             MoveInfo {
-                                player,
                                 piece,
                                 from: position,
                                 to: destination,
@@ -237,15 +246,15 @@ impl GameState {
                         let captured_pawn_position = square
                             .add(BoardPositionOffset::new(0, -y_sign))
                             .expect("En passant square invariant broken");
+                        let captured_pawn = self.board.get_square(captured_pawn_position).unwrap();
                         board_delta.insert(captured_pawn_position, None);
                         Some((
                             board_delta,
                             MoveInfo {
-                                player,
                                 piece,
                                 from: position,
                                 to: destination,
-                                captured_piece: Some((ChessPiece::Pawn, captured_pawn_position)),
+                                captured_piece: Some((captured_pawn, captured_pawn_position)),
                                 promotion: None,
                                 castling: None,
                                 en_passant: true,
@@ -282,9 +291,9 @@ impl GameState {
                                                 let mut board_delta = board_delta.clone();
                                                 board_delta.insert(
                                                     move_info.to,
-                                                    Some(PlayerPiece {
-                                                        player,
-                                                        piece: promotion_piece.into(),
+                                                    Some(ChessPiece {
+                                                        color,
+                                                        r#type: promotion_piece.into(),
                                                     }),
                                                 );
                                                 (
@@ -304,7 +313,7 @@ impl GameState {
                         ),
                 );
             }
-            ChessPiece::Knight => {
+            PieceType::Knight => {
                 //  # #
                 // #   #
                 //   O
@@ -325,14 +334,12 @@ impl GameState {
                         && let Ok(MovedPiece {
                             board_delta,
                             captured_piece,
-                            player,
                             piece,
                         }) = move_piece(&self.board, position, destination)
                     {
                         Some((
                             board_delta,
                             MoveInfo {
-                                player,
                                 piece,
                                 from: position,
                                 to: destination,
@@ -350,7 +357,7 @@ impl GameState {
                     }
                 }));
             }
-            ChessPiece::Bishop => {
+            PieceType::Bishop => {
                 // #   #
                 //  # #
                 //   O
@@ -367,7 +374,7 @@ impl GameState {
                     Path::new(direction, PathLength::Infinite).moves(&self.board, position)
                 }));
             }
-            ChessPiece::Rook => {
+            PieceType::Rook => {
                 //   #
                 //   #
                 // ##O##
@@ -380,7 +387,7 @@ impl GameState {
                     BoardPositionOffset::WEST,
                     BoardPositionOffset::EAST,
                 ];
-                let can_castle = match player {
+                let can_castle = match color {
                     Player::White => self.state.white_can_castle,
                     Player::Black => self.state.black_can_castle,
                 };
@@ -391,7 +398,7 @@ impl GameState {
                     && position
                         == BoardPosition::new(
                             0,
-                            match player {
+                            match color {
                                 Player::White => 0,
                                 Player::Black => 7,
                             },
@@ -403,7 +410,7 @@ impl GameState {
                     && position
                         == BoardPosition::new(
                             7,
-                            match player {
+                            match color {
                                 Player::White => 0,
                                 Player::Black => 7,
                             },
@@ -429,7 +436,7 @@ impl GameState {
                         }),
                 );
             }
-            ChessPiece::Queen => {
+            PieceType::Queen => {
                 // # # #
                 //  ###
                 // ##O##
@@ -450,7 +457,7 @@ impl GameState {
                     Path::new(direction, PathLength::Infinite).moves(&self.board, position)
                 }));
             }
-            ChessPiece::King => {
+            PieceType::King => {
                 //
                 //  ###
                 //  #O#
@@ -468,7 +475,7 @@ impl GameState {
                     BoardPositionOffset::EAST,
                 ];
 
-                let can_castle = match player {
+                let can_castle = match color {
                     Player::White => self.state.white_can_castle,
                     Player::Black => self.state.black_can_castle,
                 };
@@ -491,17 +498,17 @@ impl GameState {
                     // move the king
                     board_delta.insert(
                         new_king_position,
-                        Some(PlayerPiece {
-                            player,
-                            piece: ChessPiece::King,
+                        Some(ChessPiece {
+                            color,
+                            r#type: PieceType::King,
                         }),
                     );
                     // move the rook
                     board_delta.insert(
                         new_rook_position,
-                        Some(PlayerPiece {
-                            player,
-                            piece: ChessPiece::Rook,
+                        Some(ChessPiece {
+                            color,
+                            r#type: PieceType::Rook,
                         }),
                     );
                     // empty where the king and rook used to be
@@ -510,7 +517,6 @@ impl GameState {
                     Some((
                         board_delta,
                         MoveInfo {
-                            player,
                             piece,
                             from: position,
                             to: new_king_position,
@@ -541,19 +547,13 @@ impl GameState {
                     let old_rook_position = BoardPosition::new(7, position.y()).unwrap();
 
                     // move the king
-                    board_delta.insert(
-                        new_king_position,
-                        Some(PlayerPiece {
-                            player,
-                            piece: ChessPiece::King,
-                        }),
-                    );
+                    board_delta.insert(new_king_position, Some(piece));
                     // move the rook
                     board_delta.insert(
                         new_rook_position,
-                        Some(PlayerPiece {
-                            player,
-                            piece: ChessPiece::Rook,
+                        Some(ChessPiece {
+                            color,
+                            r#type: PieceType::Rook,
                         }),
                     );
                     // empty where the king and rook used to be
@@ -562,7 +562,6 @@ impl GameState {
                     Some((
                         board_delta,
                         MoveInfo {
-                            player,
                             piece,
                             from: position,
                             to: new_king_position,
@@ -594,14 +593,12 @@ impl GameState {
                                 && let Ok(MovedPiece {
                                     board_delta,
                                     captured_piece,
-                                    player,
                                     piece,
                                 }) = move_piece(&self.board, position, destination)
                             {
                                 Some((
                                     board_delta,
                                     MoveInfo {
-                                        player,
                                         piece,
                                         from: position,
                                         to: destination,
@@ -626,11 +623,11 @@ impl GameState {
             }
         }
     }
-    /// import a game state from a chess fen (standardized compact chess position format).
+    /// import a game state from a fen string (standardized compact chess position format).
     pub fn from_fen(&self, fen: &str) -> Option<Self> {
         todo!()
     }
-    /// convert the game state to a chess fen
+    /// convert the game state to a fen string
     pub fn to_fen(&self) -> String {
         todo!()
     }
@@ -684,32 +681,36 @@ impl ChessGame {
         };
         let valid_moves = state.all_valid_moves().collect();
         Self {
-            moves: Vec::new(),
-            is_stalemate: false,
-            valid_moves,
-
             _init_state: state.clone(),
+            moves: Vec::new(),
+
+            game_termination: None,
+            valid_moves,
             state,
         }
     }
 
     /// returns None if the game has ended
     pub fn turn(&self) -> Option<Player> {
-        if self.is_stalemate {
+        if self.game_termination.is_some() {
             None
         } else {
             Some(
                 self.moves
                     .last()
-                    .map(|r#move| r#move.1.player.toggled())
+                    .map(|r#move| r#move.1.piece.color.toggled())
                     .unwrap_or(Player::White),
             )
         }
     }
 
     /// if the move doesn't exist inside valid moves it will return Err(())
-    pub fn r#move(&mut self, r#move: DeltaChessBoard) -> Result<ExtendedMoveInfo, ()> {
+    pub fn r#move(
+        &mut self,
+        r#move: DeltaChessBoard,
+    ) -> Result<(ExtendedMoveInfo, Option<GameTermination>), ()> {
         let intermediate_move_info = self.valid_moves.remove(&r#move).ok_or(())?;
+        let player = intermediate_move_info.piece.color;
 
         // update board
         let mut new_board = self.state.board.clone();
@@ -728,12 +729,12 @@ impl ChessGame {
             .find(|(_, move_info)| {
                 move_info
                     .captured_piece
-                    .is_some_and(|piece| piece.0 == ChessPiece::King)
+                    .is_some_and(|piece| piece.0.r#type == PieceType::King)
             })
             .is_some(); // update state based on how the move changed it
 
         let new_position_state = PositionState {
-            white_can_castle: if let Player::White = intermediate_move_info.player {
+            white_can_castle: if let Player::White = intermediate_move_info.piece.color {
                 match intermediate_move_info.disabled_castling {
                     (None, None) => self.state.state.white_can_castle,
                     (None, Some(_)) => (self.state.state.white_can_castle.0, false),
@@ -743,7 +744,7 @@ impl ChessGame {
             } else {
                 self.state.state.white_can_castle
             },
-            black_can_castle: if let Player::Black = intermediate_move_info.player {
+            black_can_castle: if let Player::Black = intermediate_move_info.piece.color {
                 match intermediate_move_info.disabled_castling {
                     (None, None) => self.state.state.black_can_castle,
                     (None, Some(_)) => (self.state.state.black_can_castle.0, false),
@@ -754,7 +755,7 @@ impl ChessGame {
                 self.state.state.black_can_castle
             },
             en_passant_square: intermediate_move_info.set_en_passant_square,
-            halfmove_clock: if intermediate_move_info.piece == ChessPiece::Pawn
+            halfmove_clock: if intermediate_move_info.piece.r#type == PieceType::Pawn
                 || intermediate_move_info.captured_piece.is_some()
             {
                 0
@@ -791,6 +792,17 @@ impl ChessGame {
         // update the rest of the state
         self.state = new_state;
         self.moves.push((r#move, new_move_info.clone()));
-        Ok(new_move_info)
+
+        let game_termination = if stalemate && is_check {
+            Some(GameTermination::CheckMate(player))
+        } else if stalemate {
+            Some(GameTermination::StaleMate)
+        } else if self.state.state.halfmove_clock == 100 {
+            Some(GameTermination::FiftyMoveRule)
+        } else {
+            None
+        };
+        self.game_termination = game_termination.clone();
+        Ok((new_move_info, game_termination))
     }
 }

@@ -3,7 +3,7 @@ use std::{
     ops::{Add, AddAssign, Sub},
 };
 
-use crate::chess::types::{ChessPiece, Player, PlayerPiece};
+use crate::chess::types::{ChessPiece, PieceType, Player};
 
 /// the side length of a chess board
 pub const SIDE_LENGTH: usize = 8;
@@ -15,7 +15,7 @@ pub const SIDE_LENGTH: usize = 8;
 pub struct ChessBoard(pub [[ChessBoardSquare; SIDE_LENGTH]; SIDE_LENGTH]);
 
 /// A zero-indexed position on the chess board
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BoardPosition {
     x: u8,
     y: u8,
@@ -29,10 +29,8 @@ pub struct BoardPositionOffset {
 }
 
 /// A square on a chess board
-pub type ChessBoardSquare = Option<PlayerPiece>;
+pub type ChessBoardSquare = Option<ChessPiece>;
 
-// maybe it storing sequentially can be a problem if it's supposed to represent a set, meaning giving different
-// eq or hash based on order. TODO implement custom Eq and Hash
 /// A compact type of storing a change of a [`ChessBoard`], storing in only 17 bytes what would otherwise take 128
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct DeltaChessBoard {
@@ -190,12 +188,12 @@ impl ChessBoard {
     }
 
     /// get all pieces of the specified player on the board
-    pub fn get_player_pieces(&self, player: Player) -> Vec<(&PlayerPiece, BoardPosition)> {
+    pub fn get_player_pieces(&self, player: Player) -> Vec<(&ChessPiece, BoardPosition)> {
         let mut pieces = Vec::new();
         for (x, column) in self.0.iter().enumerate() {
             for (y, piece) in column.iter().enumerate() {
                 if let Some(piece) = piece
-                    && piece.player == player
+                    && piece.color == player
                 {
                     pieces.push((piece, BoardPosition::new(x as u8, y as u8).unwrap()))
                 }
@@ -222,25 +220,30 @@ impl DeltaChessBoard {
 
     /// overwrites the square if it already exists in the [`DeltaChessBoard`]
     pub fn insert(&mut self, position: BoardPosition, square: ChessBoardSquare) {
-        if self.len == 4 {
-            // you shouldnt run into this but if you do its most likely because you tried modding chess
-            // to support moves that affect more than 4 positions of a chessboard per move, in which case
-            // you must increase the size of DeltaChessBoard's storage, since it depends on the invariant
-            // that no move affects more than 4 squares at once (castling)
-            panic!("DeltaChessBoard out of bounds! Read comment above panic for more info!");
-        }
-        // check if position already exists in O(n^2) time (for n inserts)
-        for (pos, sqr) in self.iter_mut() {
-            if *pos == position {
-                // overwrite the position with the new one (useful for example in pawn promotions, overwriting
-                // a pawn to a promoted piece)
-                *sqr = square;
-                // this doesn't increase the length
-                return;
+        match (&mut self.store[..self.len as usize])
+            .binary_search_by_key(&position, |(pos, _)| *pos)
+        {
+            // if the position already exists, overwrite it. this doesn't increase the length
+            Ok(square_index) => {
+                self.store[square_index].1 = square;
+            }
+            // else try insert it
+            Err(insert_index) => {
+                if self.len == 4 {
+                    // you shouldnt run into this but if you do its most likely because you tried modding chess
+                    // to support moves that affect more than 4 positions of a chessboard per move, in which case
+                    // you must increase the size of DeltaChessBoard's storage, since it depends on the invariant
+                    // that no move affects more than 4 squares at once (castling)
+                    panic!(
+                        "DeltaChessBoard out of bounds! Read comment above panic for more info!"
+                    );
+                }
+                // push all the elements one step and insert
+                self.store[..self.len as usize].copy_within(insert_index.., insert_index + 1);
+                self.store[insert_index] = (position, square);
+                self.len += 1;
             }
         }
-        self.store[self.len as usize] = (position, square);
-        self.len += 1;
     }
 
     pub fn iter<'a>(&'a self) -> DeltaChessBoardIter<'a> {
@@ -329,53 +332,53 @@ impl Display for ChessBoard {
                     match self.0[x][y] {
                         None => '#',
                         Some(piece) => match piece {
-                            PlayerPiece {
-                                player: Player::White,
-                                piece: ChessPiece::Pawn,
+                            ChessPiece {
+                                color: Player::White,
+                                r#type: PieceType::Pawn,
                             } => 'P',
-                            PlayerPiece {
-                                player: Player::White,
-                                piece: ChessPiece::Knight,
+                            ChessPiece {
+                                color: Player::White,
+                                r#type: PieceType::Knight,
                             } => 'N',
-                            PlayerPiece {
-                                player: Player::White,
-                                piece: ChessPiece::Bishop,
+                            ChessPiece {
+                                color: Player::White,
+                                r#type: PieceType::Bishop,
                             } => 'B',
-                            PlayerPiece {
-                                player: Player::White,
-                                piece: ChessPiece::Rook,
+                            ChessPiece {
+                                color: Player::White,
+                                r#type: PieceType::Rook,
                             } => 'R',
-                            PlayerPiece {
-                                player: Player::White,
-                                piece: ChessPiece::Queen,
+                            ChessPiece {
+                                color: Player::White,
+                                r#type: PieceType::Queen,
                             } => 'Q',
-                            PlayerPiece {
-                                player: Player::White,
-                                piece: ChessPiece::King,
+                            ChessPiece {
+                                color: Player::White,
+                                r#type: PieceType::King,
                             } => 'K',
-                            PlayerPiece {
-                                player: Player::Black,
-                                piece: ChessPiece::Pawn,
+                            ChessPiece {
+                                color: Player::Black,
+                                r#type: PieceType::Pawn,
                             } => 'p',
-                            PlayerPiece {
-                                player: Player::Black,
-                                piece: ChessPiece::Knight,
+                            ChessPiece {
+                                color: Player::Black,
+                                r#type: PieceType::Knight,
                             } => 'n',
-                            PlayerPiece {
-                                player: Player::Black,
-                                piece: ChessPiece::Bishop,
+                            ChessPiece {
+                                color: Player::Black,
+                                r#type: PieceType::Bishop,
                             } => 'b',
-                            PlayerPiece {
-                                player: Player::Black,
-                                piece: ChessPiece::Rook,
+                            ChessPiece {
+                                color: Player::Black,
+                                r#type: PieceType::Rook,
                             } => 'r',
-                            PlayerPiece {
-                                player: Player::Black,
-                                piece: ChessPiece::Queen,
+                            ChessPiece {
+                                color: Player::Black,
+                                r#type: PieceType::Queen,
                             } => 'q',
-                            PlayerPiece {
-                                player: Player::Black,
-                                piece: ChessPiece::King,
+                            ChessPiece {
+                                color: Player::Black,
+                                r#type: PieceType::King,
                             } => 'k',
                         },
                     }
@@ -403,59 +406,59 @@ impl Default for BoardPosition {
 
 /// shorthand piece constants to make defining hardcoded board positions in code simpler
 mod board_init {
-    use crate::chess::types::ChessPiece;
+    use crate::chess::types::PieceType;
 
     use super::*;
 
     /// An empty square
     pub const EE: ChessBoardSquare = None;
 
-    pub const BK: ChessBoardSquare = Some(PlayerPiece {
-        player: Player::Black,
-        piece: ChessPiece::King,
+    pub const BK: ChessBoardSquare = Some(ChessPiece {
+        color: Player::Black,
+        r#type: PieceType::King,
     });
-    pub const WK: ChessBoardSquare = Some(PlayerPiece {
-        player: Player::White,
-        piece: ChessPiece::King,
+    pub const WK: ChessBoardSquare = Some(ChessPiece {
+        color: Player::White,
+        r#type: PieceType::King,
     });
-    pub const BQ: ChessBoardSquare = Some(PlayerPiece {
-        player: Player::Black,
-        piece: ChessPiece::Queen,
+    pub const BQ: ChessBoardSquare = Some(ChessPiece {
+        color: Player::Black,
+        r#type: PieceType::Queen,
     });
-    pub const WQ: ChessBoardSquare = Some(PlayerPiece {
-        player: Player::White,
-        piece: ChessPiece::Queen,
+    pub const WQ: ChessBoardSquare = Some(ChessPiece {
+        color: Player::White,
+        r#type: PieceType::Queen,
     });
-    pub const BR: ChessBoardSquare = Some(PlayerPiece {
-        player: Player::Black,
-        piece: ChessPiece::Rook,
+    pub const BR: ChessBoardSquare = Some(ChessPiece {
+        color: Player::Black,
+        r#type: PieceType::Rook,
     });
-    pub const WR: ChessBoardSquare = Some(PlayerPiece {
-        player: Player::White,
-        piece: ChessPiece::Rook,
+    pub const WR: ChessBoardSquare = Some(ChessPiece {
+        color: Player::White,
+        r#type: PieceType::Rook,
     });
-    pub const BB: ChessBoardSquare = Some(PlayerPiece {
-        player: Player::Black,
-        piece: ChessPiece::Bishop,
+    pub const BB: ChessBoardSquare = Some(ChessPiece {
+        color: Player::Black,
+        r#type: PieceType::Bishop,
     });
-    pub const WB: ChessBoardSquare = Some(PlayerPiece {
-        player: Player::White,
-        piece: ChessPiece::Bishop,
+    pub const WB: ChessBoardSquare = Some(ChessPiece {
+        color: Player::White,
+        r#type: PieceType::Bishop,
     });
-    pub const BN: ChessBoardSquare = Some(PlayerPiece {
-        player: Player::Black,
-        piece: ChessPiece::Knight,
+    pub const BN: ChessBoardSquare = Some(ChessPiece {
+        color: Player::Black,
+        r#type: PieceType::Knight,
     });
-    pub const WN: ChessBoardSquare = Some(PlayerPiece {
-        player: Player::White,
-        piece: ChessPiece::Knight,
+    pub const WN: ChessBoardSquare = Some(ChessPiece {
+        color: Player::White,
+        r#type: PieceType::Knight,
     });
-    pub const BP: ChessBoardSquare = Some(PlayerPiece {
-        player: Player::Black,
-        piece: ChessPiece::Pawn,
+    pub const BP: ChessBoardSquare = Some(ChessPiece {
+        color: Player::Black,
+        r#type: PieceType::Pawn,
     });
-    pub const WP: ChessBoardSquare = Some(PlayerPiece {
-        player: Player::White,
-        piece: ChessPiece::Pawn,
+    pub const WP: ChessBoardSquare = Some(ChessPiece {
+        color: Player::White,
+        r#type: PieceType::Pawn,
     });
 }

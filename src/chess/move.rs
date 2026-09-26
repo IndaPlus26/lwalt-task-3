@@ -1,6 +1,6 @@
 use crate::chess::{
     board::{BoardPosition, BoardPositionOffset, ChessBoard, DeltaChessBoard},
-    types::{ChessPiece, Player},
+    types::{ChessPiece, PieceType, Player},
 };
 
 // check conditions for a move: If you make the move, and then make another move of the same player, you could capture the king
@@ -27,8 +27,6 @@ use crate::chess::{
 /// This is to spare the poor gui implementators the work of needing to derive these purely from a board diff
 #[derive(Clone)]
 pub struct ExtendedMoveInfo {
-    /// the player who executed the move
-    pub player: Player,
     /// the piece that was moved
     pub piece: ChessPiece,
     /// where from the piece was moved
@@ -65,8 +63,6 @@ pub enum CheckEvent {
 /// representating the transition stage before a real [`ExtendedMoveInfo`] is created
 #[derive(Clone)]
 pub struct MoveInfo {
-    /// the player who executed the move
-    pub player: Player,
     /// the piece that was moved
     pub piece: ChessPiece,
     /// where from the piece was moved
@@ -98,13 +94,13 @@ pub enum PromotionPiece {
     Knight,
 }
 
-impl From<PromotionPiece> for ChessPiece {
+impl From<PromotionPiece> for PieceType {
     fn from(value: PromotionPiece) -> Self {
         match value {
-            PromotionPiece::Queen => ChessPiece::Queen,
-            PromotionPiece::Rook => ChessPiece::Rook,
-            PromotionPiece::Bishop => ChessPiece::Bishop,
-            PromotionPiece::Knight => ChessPiece::Knight,
+            PromotionPiece::Queen => PieceType::Queen,
+            PromotionPiece::Rook => PieceType::Rook,
+            PromotionPiece::Bishop => PieceType::Bishop,
+            PromotionPiece::Knight => PieceType::Knight,
         }
     }
 }
@@ -112,7 +108,6 @@ impl From<PromotionPiece> for ChessPiece {
 impl ExtendedMoveInfo {
     pub fn new(move_info: MoveInfo, check_event: Option<CheckEvent>) -> Self {
         Self {
-            player: move_info.player,
             piece: move_info.piece,
             from: move_info.from,
             to: move_info.to,
@@ -145,7 +140,6 @@ pub enum MoveError {
 pub struct MovedPiece {
     pub board_delta: DeltaChessBoard,
     pub captured_piece: Option<ChessPiece>,
-    pub player: Player,
     pub piece: ChessPiece,
 }
 
@@ -172,15 +166,14 @@ pub fn move_piece(
         board_delta,
         captured_piece: match board.get_square(destination) {
             Some(existing_piece) => {
-                if existing_piece.player == player_piece.player {
+                if existing_piece.color == player_piece.color {
                     return Err(MoveError::FriendlyFire);
                 }
-                Some(existing_piece.piece)
+                Some(existing_piece)
             }
             None => None,
         },
-        player: player_piece.player,
-        piece: player_piece.piece,
+        piece: player_piece,
     })
 }
 
@@ -209,7 +202,6 @@ impl Path {
             let Ok(MovedPiece {
                 board_delta,
                 captured_piece,
-                player,
                 piece,
             }) = move_piece(&board, position, destination)
             else {
@@ -219,7 +211,6 @@ impl Path {
             Some((
                 board_delta,
                 MoveInfo {
-                    player,
                     piece,
                     from: position,
                     to: destination,

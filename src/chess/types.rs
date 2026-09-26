@@ -1,5 +1,5 @@
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
-pub enum ChessPiece {
+pub enum PieceType {
     Pawn,
     Knight,
     Bishop,
@@ -30,7 +30,7 @@ impl Player {
 
 /// A piece belonging to a specific player
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PlayerPiece {
-    pub player: Player,
-    pub piece: ChessPiece,
+pub struct ChessPiece {
+    pub color: Player,
+    pub r#type: PieceType,
 }
