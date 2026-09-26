@@ -1,6 +1,6 @@
 use crate::chess::{
-    board::{BoardPosition, BoardPositionOffset, ChessBoard, DeltaChessBoard},
-    types::{ChessPiece, PieceType, Player},
+    board::{BoardPosition, ChessBoard, DeltaChessBoard},
+    types::{ChessPiece, PieceType},
 };
 
 // check conditions for a move: If you make the move, and then make another move of the same player, you could capture the king
@@ -122,137 +122,38 @@ impl ExtendedMoveInfo {
     }
 }
 
-/// a path for a piece on a chess board, consisting of an offset with constant step size and direction
-#[derive(Copy, Clone)]
-pub struct Path {
-    offset: BoardPositionOffset,
-    length: PathLength,
-}
+/// No piece at the specified origin position exists
+pub struct PieceDoesNotExist;
 
-/// An invalid move state
-pub enum MoveError {
-    /// if the piece landed on another piece of the same team
-    FriendlyFire,
-    /// if the piece doesn't exist
-    InvalidPiece,
-}
-
+/// A type representing a piece having moved from one square to another
 pub struct MovedPiece {
+    // /// The piece which moved
+    // pub moved_piece: ChessPiece,
+    /// The delta chess board that represents the move
     pub board_delta: DeltaChessBoard,
-    pub captured_piece: Option<ChessPiece>,
-    pub piece: ChessPiece,
+    /// Optionally the piece it replaced on the destination square
+    pub replaced_piece: Option<ChessPiece>,
 }
 
-// reason i made this take in the entire chess board is bc i want to fetch the piece directly from there,
-// to avoid redundant state that may contain errors or be out of sync. so i thought i might as well keep
-// track of the captured status here as well, otherwise i'd have derived that from a DeltaBoard alone
-/// Move (or teleport) a piece from an origin to a destination.
-/// Only accounts for direct teleport moves, aka a piece teleporting to the position at the specified offset
-/// Returns Ok if the move was valid, as well as the delta chess board and optionally if it captured a piece there
+/// Get a representation of a piece that has moved (or teleported) from an origin square to a destination.
+/// Only accounts for direct teleport moves, aka a piece teleporting to the specified destination
+/// Will not account for color of the piece replaced, and a check for capture or if the move is valid must
+/// be done outside this function
 pub fn move_piece(
     board: &ChessBoard,
     origin: BoardPosition,
     destination: BoardPosition,
-) -> Result<MovedPiece, MoveError> {
-    let Some(player_piece) = board.get_square(origin) else {
-        return Err(MoveError::InvalidPiece);
+) -> Result<MovedPiece, PieceDoesNotExist> {
+    let Some(piece) = board.get_square(origin) else {
+        return Err(PieceDoesNotExist);
     };
     let mut board_delta = DeltaChessBoard::new();
     // make origin square empty
     board_delta.insert(origin, None);
     // put piece at destination square
-    board_delta.insert(destination, Some(player_piece));
+    board_delta.insert(destination, Some(piece));
     Ok(MovedPiece {
         board_delta,
-        captured_piece: match board.get_square(destination) {
-            Some(existing_piece) => {
-                if existing_piece.color == player_piece.color {
-                    return Err(MoveError::FriendlyFire);
-                }
-                Some(existing_piece)
-            }
-            None => None,
-        },
-        piece: player_piece,
+        replaced_piece: board.get_square(destination),
     })
-}
-
-impl Path {
-    pub fn new(offset: BoardPositionOffset, length: PathLength) -> Self {
-        Self { offset, length }
-    }
-
-    pub fn into_iter(self) -> PathIter {
-        PathIter {
-            path: self,
-            current_offset: BoardPositionOffset::ZERO,
-            current_iteration: 0,
-        }
-    }
-
-    pub fn moves<'a>(
-        self,
-        board: &'a ChessBoard,
-        position: BoardPosition,
-    ) -> impl Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a {
-        self.into_iter().map_while(move |offset| {
-            let Some(destination) = position.add(offset) else {
-                return None; // if the position is out of bounds end the path
-            };
-            let Ok(MovedPiece {
-                board_delta,
-                captured_piece,
-                piece,
-            }) = move_piece(&board, position, destination)
-            else {
-                return None; // if the poisition is occupied by a same team piece, end the path
-            };
-            // else return the move
-            Some((
-                board_delta,
-                MoveInfo {
-                    piece,
-                    from: position,
-                    to: destination,
-                    captured_piece: captured_piece
-                        .map(|captured_piece| (captured_piece, destination)),
-                    promotion: None,
-                    castling: None,
-                    en_passant: false,
-                    disabled_castling: (None, None),
-                    set_en_passant_square: None,
-                },
-            ))
-        })
-    }
-}
-
-/// an iterator for a [`Path`] that returns the position offsets of the path in order
-pub struct PathIter {
-    path: Path,
-    current_offset: BoardPositionOffset,
-    current_iteration: u8,
-}
-
-impl Iterator for PathIter {
-    type Item = BoardPositionOffset;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let PathLength::Fixed(len) = self.path.length
-            && len == self.current_iteration
-        {
-            return None;
-        }
-
-        self.current_iteration += 1;
-        self.current_offset += self.path.offset;
-        Some(self.current_offset)
-    }
-}
-
-/// the length of the path
-#[derive(Copy, Clone)]
-pub enum PathLength {
-    Fixed(u8),
-    Infinite,
 }

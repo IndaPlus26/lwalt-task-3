@@ -9,12 +9,12 @@ pub enum PieceType {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub enum Player {
+pub enum Color {
     White,
     Black,
 }
 
-impl Player {
+impl Color {
     pub fn toggle(&mut self) {
         *self = self.toggled();
     }
@@ -22,8 +22,8 @@ impl Player {
     /// get the opposite player
     pub fn toggled(self) -> Self {
         match self {
-            Player::White => Player::Black,
-            Player::Black => Player::White,
+            Color::White => Color::Black,
+            Color::Black => Color::White,
         }
     }
 }
@@ -31,6 +31,6 @@ impl Player {
 /// A piece belonging to a specific player
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ChessPiece {
-    pub color: Player,
+    pub color: Color,
     pub r#type: PieceType,
 }

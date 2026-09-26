@@ -1,9 +1,9 @@
 use std::{
     fmt::Display,
-    ops::{Add, AddAssign, Sub},
+    ops::{Add, AddAssign, Mul, Sub},
 };
 
-use crate::chess::types::{ChessPiece, PieceType, Player};
+use crate::chess::types::{ChessPiece, Color, PieceType};
 
 /// the side length of a chess board
 pub const SIDE_LENGTH: usize = 8;
@@ -187,13 +187,13 @@ impl ChessBoard {
         })
     }
 
-    /// get all pieces of the specified player on the board
-    pub fn get_player_pieces(&self, player: Player) -> Vec<(&ChessPiece, BoardPosition)> {
+    /// get all pieces of the specified color on the board
+    pub fn get_player_pieces(&self, color: Color) -> Vec<(&ChessPiece, BoardPosition)> {
         let mut pieces = Vec::new();
         for (x, column) in self.0.iter().enumerate() {
             for (y, piece) in column.iter().enumerate() {
                 if let Some(piece) = piece
-                    && piece.color == player
+                    && piece.color == color
                 {
                     pieces.push((piece, BoardPosition::new(x as u8, y as u8).unwrap()))
                 }
@@ -301,6 +301,18 @@ impl Add for BoardPositionOffset {
         }
     }
 }
+
+impl Mul<i8> for BoardPositionOffset {
+    type Output = Self;
+
+    fn mul(self, rhs: i8) -> Self::Output {
+        Self {
+            dx: self.dx * rhs,
+            dy: self.dx * rhs,
+        }
+    }
+}
+
 impl Sub for BoardPositionOffset {
     type Output = BoardPositionOffset;
 
@@ -333,51 +345,51 @@ impl Display for ChessBoard {
                         None => '#',
                         Some(piece) => match piece {
                             ChessPiece {
-                                color: Player::White,
+                                color: Color::White,
                                 r#type: PieceType::Pawn,
                             } => 'P',
                             ChessPiece {
-                                color: Player::White,
+                                color: Color::White,
                                 r#type: PieceType::Knight,
                             } => 'N',
                             ChessPiece {
-                                color: Player::White,
+                                color: Color::White,
                                 r#type: PieceType::Bishop,
                             } => 'B',
                             ChessPiece {
-                                color: Player::White,
+                                color: Color::White,
                                 r#type: PieceType::Rook,
                             } => 'R',
                             ChessPiece {
-                                color: Player::White,
+                                color: Color::White,
                                 r#type: PieceType::Queen,
                             } => 'Q',
                             ChessPiece {
-                                color: Player::White,
+                                color: Color::White,
                                 r#type: PieceType::King,
                             } => 'K',
                             ChessPiece {
-                                color: Player::Black,
+                                color: Color::Black,
                                 r#type: PieceType::Pawn,
                             } => 'p',
                             ChessPiece {
-                                color: Player::Black,
+                                color: Color::Black,
                                 r#type: PieceType::Knight,
                             } => 'n',
                             ChessPiece {
-                                color: Player::Black,
+                                color: Color::Black,
                                 r#type: PieceType::Bishop,
                             } => 'b',
                             ChessPiece {
-                                color: Player::Black,
+                                color: Color::Black,
                                 r#type: PieceType::Rook,
                             } => 'r',
                             ChessPiece {
-                                color: Player::Black,
+                                color: Color::Black,
                                 r#type: PieceType::Queen,
                             } => 'q',
                             ChessPiece {
-                                color: Player::Black,
+                                color: Color::Black,
                                 r#type: PieceType::King,
                             } => 'k',
                         },
@@ -414,51 +426,51 @@ mod board_init {
     pub const EE: ChessBoardSquare = None;
 
     pub const BK: ChessBoardSquare = Some(ChessPiece {
-        color: Player::Black,
+        color: Color::Black,
         r#type: PieceType::King,
     });
     pub const WK: ChessBoardSquare = Some(ChessPiece {
-        color: Player::White,
+        color: Color::White,
         r#type: PieceType::King,
     });
     pub const BQ: ChessBoardSquare = Some(ChessPiece {
-        color: Player::Black,
+        color: Color::Black,
         r#type: PieceType::Queen,
     });
     pub const WQ: ChessBoardSquare = Some(ChessPiece {
-        color: Player::White,
+        color: Color::White,
         r#type: PieceType::Queen,
     });
     pub const BR: ChessBoardSquare = Some(ChessPiece {
-        color: Player::Black,
+        color: Color::Black,
         r#type: PieceType::Rook,
     });
     pub const WR: ChessBoardSquare = Some(ChessPiece {
-        color: Player::White,
+        color: Color::White,
         r#type: PieceType::Rook,
     });
     pub const BB: ChessBoardSquare = Some(ChessPiece {
-        color: Player::Black,
+        color: Color::Black,
         r#type: PieceType::Bishop,
     });
     pub const WB: ChessBoardSquare = Some(ChessPiece {
-        color: Player::White,
+        color: Color::White,
         r#type: PieceType::Bishop,
     });
     pub const BN: ChessBoardSquare = Some(ChessPiece {
-        color: Player::Black,
+        color: Color::Black,
         r#type: PieceType::Knight,
     });
     pub const WN: ChessBoardSquare = Some(ChessPiece {
-        color: Player::White,
+        color: Color::White,
         r#type: PieceType::Knight,
     });
     pub const BP: ChessBoardSquare = Some(ChessPiece {
-        color: Player::Black,
+        color: Color::Black,
         r#type: PieceType::Pawn,
     });
     pub const WP: ChessBoardSquare = Some(ChessPiece {
-        color: Player::White,
+        color: Color::White,
         r#type: PieceType::Pawn,
     });
 }
