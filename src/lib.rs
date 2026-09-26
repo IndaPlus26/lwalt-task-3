@@ -49,6 +49,9 @@ pub enum GameTermination {
     CheckMate(Color),
     StaleMate,
     FiftyMoveRule,
+    // TODO add these
+    // ThreeMoveRule
+    // InsufficientMaterial
 }
 
 // TODO: refactor and look over the code in the entire codebase to follow the rule of every function
@@ -448,7 +451,7 @@ fn pseudo_valid_pawn_moves<'a>(
                         panic!("en passant piece invariant broken");
                     }
                 };
-                board_delta.insert(captured_pawn_position, None);
+                board_delta.insert(captured_pawn_position, None).unwrap();
                 Some((
                     board_delta,
                     MoveInfo {
@@ -498,7 +501,7 @@ fn pseudo_valid_pawn_moves<'a>(
                                             color,
                                             r#type: promotion_piece.into(),
                                         }),
-                                    );
+                                    ).unwrap();
                                     (
                                         board_delta,
                                         MoveInfo {
@@ -777,18 +780,20 @@ fn pseudo_valid_king_moves<'a>(
             let old_rook_position = BoardPosition::new(old_rook_x, castling_row_y).unwrap();
 
             // move the king
-            board_delta.insert(new_king_position, Some(piece));
+            board_delta.insert(new_king_position, Some(piece)).unwrap();
             // move the rook
-            board_delta.insert(
-                new_rook_position,
-                Some(ChessPiece {
-                    color,
-                    r#type: PieceType::Rook,
-                }),
-            );
+            board_delta
+                .insert(
+                    new_rook_position,
+                    Some(ChessPiece {
+                        color,
+                        r#type: PieceType::Rook,
+                    }),
+                )
+                .unwrap();
             // empty where the king and rook used to be
-            board_delta.insert(position, None);
-            board_delta.insert(old_rook_position, None);
+            board_delta.insert(position, None).expect("impossible");
+            board_delta.insert(old_rook_position, None).unwrap();
             Some((
                 board_delta,
                 MoveInfo {
@@ -869,17 +874,17 @@ fn pseudo_valid_king_moves<'a>(
 /// The state of a chess game in one specific position, excluding the piece positions/board and containing only metadata
 #[derive(Clone)]
 pub struct PositionState {
-    player_at_turn: Color,
+    pub player_at_turn: Color,
     /// (queen-side, king-side)
-    white_can_castle: (bool, bool),
+    pub white_can_castle: (bool, bool),
     /// (queen-side, king-side)
-    black_can_castle: (bool, bool),
+    pub black_can_castle: (bool, bool),
     /// A square where en passant is possible (if a pawn moved past it the previous move)
-    en_passant_square: Option<BoardPosition>,
+    pub en_passant_square: Option<BoardPosition>,
     /// The number of halfmoves since the last capture or pawn advance
-    halfmove_clock: u8,
+    pub halfmove_clock: u8,
     /// The number of full moves. is 1-indexed for some reason
-    n_fullmoves: u16,
+    pub n_fullmoves: u16,
 }
 
 impl Default for PositionState {

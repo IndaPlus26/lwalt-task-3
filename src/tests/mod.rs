@@ -42,8 +42,8 @@ fn valid_moves_capture() {
         let origin = BoardPosition::new(1, 1).unwrap();
         let destination = BoardPosition::new(1, 2).unwrap();
         let mut delta_board = DeltaChessBoard::new();
-        delta_board.insert(origin, None);
-        delta_board.insert(destination, Some(white_pawn));
+        delta_board.insert(origin, None).unwrap();
+        delta_board.insert(destination, Some(white_pawn)).unwrap();
         let move_info = MoveInfo {
             piece: white_pawn,
             from: origin,
@@ -62,8 +62,8 @@ fn valid_moves_capture() {
         let origin = BoardPosition::new(1, 1).unwrap();
         let destination = BoardPosition::new(1, 3).unwrap();
         let mut delta_board = DeltaChessBoard::new();
-        delta_board.insert(origin, None);
-        delta_board.insert(destination, Some(white_pawn));
+        delta_board.insert(origin, None).unwrap();
+        delta_board.insert(destination, Some(white_pawn)).unwrap();
         let move_info = MoveInfo {
             piece: white_pawn,
             from: origin,
@@ -82,8 +82,8 @@ fn valid_moves_capture() {
         let origin = BoardPosition::new(7, 7).unwrap();
         let destination = BoardPosition::new(5, 6).unwrap();
         let mut delta_board = DeltaChessBoard::new();
-        delta_board.insert(origin, None);
-        delta_board.insert(destination, Some(white_knight));
+        delta_board.insert(origin, None).unwrap();
+        delta_board.insert(destination, Some(white_knight)).unwrap();
         let move_info = MoveInfo {
             piece: white_knight,
             from: origin,
@@ -102,8 +102,8 @@ fn valid_moves_capture() {
         let origin = BoardPosition::new(7, 7).unwrap();
         let destination = BoardPosition::new(6, 5).unwrap();
         let mut delta_board = DeltaChessBoard::new();
-        delta_board.insert(origin, None);
-        delta_board.insert(destination, Some(white_knight));
+        delta_board.insert(origin, None).unwrap();
+        delta_board.insert(destination, Some(white_knight)).unwrap();
         let move_info = MoveInfo {
             piece: white_knight,
             from: origin,
@@ -141,8 +141,8 @@ fn valid_moves_capture() {
         let origin = BoardPosition::new(0, 0).unwrap();
         let destination = BoardPosition::new(1, 1).unwrap();
         let mut delta_board = DeltaChessBoard::new();
-        delta_board.insert(origin, None);
-        delta_board.insert(destination, Some(black_bishop));
+        delta_board.insert(origin, None).unwrap();
+        delta_board.insert(destination, Some(black_bishop)).unwrap();
         let move_info = MoveInfo {
             piece: black_bishop,
             from: origin,
@@ -189,13 +189,15 @@ fn valid_moves_castling() {
         let origin = BoardPosition::new(4, 0).unwrap();
         let destination = BoardPosition::new(2, 0).unwrap();
         let mut delta_board = DeltaChessBoard::new();
-        delta_board.insert(origin, None);
-        delta_board.insert(destination, Some(white_king));
+        delta_board.insert(origin, None).unwrap();
+        delta_board.insert(destination, Some(white_king)).unwrap();
         let rook_origin = BoardPosition::new(0, 0).unwrap();
         let rook_destination = BoardPosition::new(3, 0).unwrap();
 
-        delta_board.insert(rook_origin, None);
-        delta_board.insert(rook_destination, Some(white_rook));
+        delta_board.insert(rook_origin, None).unwrap();
+        delta_board
+            .insert(rook_destination, Some(white_rook))
+            .unwrap();
         let move_info = MoveInfo {
             piece: white_king,
             from: origin,
@@ -214,13 +216,15 @@ fn valid_moves_castling() {
         let origin = BoardPosition::new(4, 0).unwrap();
         let destination = BoardPosition::new(6, 0).unwrap();
         let mut delta_board = DeltaChessBoard::new();
-        delta_board.insert(origin, None);
-        delta_board.insert(destination, Some(white_king));
+        delta_board.insert(origin, None).unwrap();
+        delta_board.insert(destination, Some(white_king)).unwrap();
         let rook_origin = BoardPosition::new(7, 0).unwrap();
         let rook_destination = BoardPosition::new(5, 0).unwrap();
 
-        delta_board.insert(rook_origin, None);
-        delta_board.insert(rook_destination, Some(white_rook));
+        delta_board.insert(rook_origin, None).unwrap();
+        delta_board
+            .insert(rook_destination, Some(white_rook))
+            .unwrap();
         let move_info = MoveInfo {
             piece: white_king,
             from: origin,
@@ -332,14 +336,16 @@ fn promotion() {
         let origin = BoardPosition::new(3, 6).unwrap();
         let destination = BoardPosition::new(2, 7).unwrap();
         let mut delta_board = DeltaChessBoard::new();
-        delta_board.insert(origin, None);
-        delta_board.insert(
-            destination,
-            Some(ChessPiece {
-                color: Color::White,
-                r#type: prom_piece.into(),
-            }),
-        );
+        delta_board.insert(origin, None).unwrap();
+        delta_board
+            .insert(
+                destination,
+                Some(ChessPiece {
+                    color: Color::White,
+                    r#type: prom_piece.into(),
+                }),
+            )
+            .unwrap();
         let move_info = MoveInfo {
             piece: white_pawn,
             from: origin,
@@ -395,9 +401,9 @@ fn en_passant() {
 
     let en_passant = {
         let mut delta_board = DeltaChessBoard::new();
-        delta_board.insert(white_pawn_pos, None);
-        delta_board.insert(black_pawn_to, Some(black_pawn));
-        delta_board.insert(black_pawn_from, None);
+        delta_board.insert(white_pawn_pos, None).unwrap();
+        delta_board.insert(black_pawn_to, Some(black_pawn)).unwrap();
+        delta_board.insert(black_pawn_from, None).unwrap();
 
         let move_info = MoveInfo {
             piece: black_pawn,

@@ -293,7 +293,9 @@ impl DeltaChessBoard {
     /// Insert a square in the [`DeltaChessBoard`]
     ///
     /// If a square at the position already exists in the [`DeltaChessBoard`] its contents will be overwritten
-    pub fn insert(&mut self, position: BoardPosition, square: ChessBoardSquare) {
+    ///
+    /// Returns Err(()) if the [`DeltaChessBoard`] is full
+    pub fn insert(&mut self, position: BoardPosition, square: ChessBoardSquare) -> Result<(), ()> {
         match (&mut self.store[..self.len as usize])
             .binary_search_by_key(&position, |(pos, _)| *pos)
         {
@@ -304,13 +306,7 @@ impl DeltaChessBoard {
             // else try insert it
             Err(insert_index) => {
                 if self.len == 4 {
-                    // you shouldnt run into this but if you do its most likely because you tried modding chess
-                    // to support moves that affect more than 4 positions of a chessboard per move, in which case
-                    // you must increase the size of DeltaChessBoard's storage, since it depends on the invariant
-                    // that no move affects more than 4 squares at once (castling)
-                    panic!(
-                        "DeltaChessBoard out of bounds! Read comment above panic for more info!"
-                    );
+                    return Err(());
                 }
                 // push all the elements one step and insert
                 self.store
@@ -319,6 +315,7 @@ impl DeltaChessBoard {
                 self.len += 1;
             }
         }
+        Ok(())
     }
 
     pub fn iter<'a>(&'a self) -> DeltaChessBoardIter<'a> {

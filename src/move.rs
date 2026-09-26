@@ -28,30 +28,7 @@ use crate::{
 /// This is to spare the poor gui implementators the work of needing to derive these purely from diffing a chessboard
 #[derive(Clone)]
 pub struct ExtendedMoveInfo {
-    /// The piece that was moved
-    pub piece: ChessPiece,
-    /// From where the piece was moved
-    pub from: BoardPosition,
-    /// Where the piece was moved to
-    pub to: BoardPosition,
-    /// If the move captures a piece, and if so, on which position that piece used to be on
-    pub captured_piece: Option<(ChessPiece, BoardPosition)>,
-    /// If the move is a promotion, contains which piece the pawn promoted to. If implementing some kind of gui for this,
-    /// noticing multiple different valid moves to the same square with different promotion options, this might be a
-    /// good time to show a popup to let the user decide which piece they want to promote to.
-    pub promotion: Option<PromotionPiece>,
-    /// If castling occured, this contains the positions for the rook which moved with, more specifically Some((from, to))
-    pub castling: Option<(BoardPosition, BoardPosition)>,
-    /// If the move executed was en passant
-    pub en_passant: bool,
-    /// If the move disabled castling for white on (queen-side, king-side) respectively. This being false does not imply
-    /// castling is enabled, just that no change in castling availability happened for this move.
-    pub disabled_castling_white: (bool, bool),
-    /// If the move disabled castling for black on (queen-side, king-side) respectively. This being false does not imply
-    /// castling is enabled, just that no change in castling availability happened for this move.
-    pub disabled_castling_black: (bool, bool),
-    /// If the move was a 2 step pawn move and enabled a potential en passant opportunity on the specified square behind it
-    pub set_en_passant_square: Option<BoardPosition>,
+    pub move_info: MoveInfo,
     /// If the move was some kind of check event
     pub check_event: Option<CheckEvent>,
 }
@@ -116,16 +93,7 @@ impl From<PromotionPiece> for PieceType {
 impl ExtendedMoveInfo {
     pub fn new(move_info: MoveInfo, check_event: Option<CheckEvent>) -> Self {
         Self {
-            piece: move_info.piece,
-            from: move_info.from,
-            to: move_info.to,
-            captured_piece: move_info.captured_piece,
-            promotion: move_info.promotion,
-            castling: move_info.castling,
-            en_passant: move_info.en_passant,
-            disabled_castling_white: move_info.disabled_castling_white,
-            disabled_castling_black: move_info.disabled_castling_black,
-            set_en_passant_square: move_info.set_en_passant_square,
+            move_info,
             check_event,
         }
     }
@@ -158,9 +126,9 @@ pub fn move_piece(
     };
     let mut board_delta = DeltaChessBoard::new();
     // make origin square empty
-    board_delta.insert(origin, None);
+    board_delta.insert(origin, None).unwrap();
     // put piece at destination square
-    board_delta.insert(destination, Some(piece));
+    board_delta.insert(destination, Some(piece)).unwrap();
     Ok(MovedPiece {
         board_delta,
         replaced_piece: board.get_square(destination),
