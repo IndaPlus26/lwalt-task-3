@@ -133,10 +133,7 @@ impl GameState {
         if color != self.state.player_at_turn {
             return Box::new(iter::empty());
         }
-        // i know this match statement is a nightmare dont remind me
-        // my code here is so inelegant it makes me really frustrated, i need to elegantize it: TODO
         match r#type {
-            // make this in the case of promotion return one move for every promotion variant, such that only the DeltaChessBoard differs
             PieceType::Pawn => pseudo_valid_pawn_moves(position, &self.board, &self.state),
             PieceType::Knight => pseudo_valid_knight_moves(position, &self.board),
             PieceType::Bishop => pseudo_valid_bishop_moves(position, &self.board),
@@ -145,11 +142,12 @@ impl GameState {
             PieceType::King => pseudo_valid_king_moves(position, &self.board, &self.state),
         }
     }
-    /// import a game state from a fen string (standardized compact chess position format).
+    /// Import a game state from a fen string (standardized compact chess position format).
+    /// This is not implemented and will panic.
     pub fn from_fen(&self, _fen: &str) -> Option<Self> {
         todo!()
     }
-    /// convert the game state to a fen string
+    /// Convert the game state to a fen string
     pub fn to_fen(&self) -> Result<String, std::fmt::Error> {
         // board positions / ranks
         let mut ranks: [String; board::SIDE_LENGTH] = array::from_fn(|_| String::new());
@@ -647,8 +645,7 @@ fn pseudo_valid_rook_moves<'a>(
         Color::White => 0,
         Color::Black => 7,
     };
-    // if the rook move will disable castling.
-    // means if castling is currently enabled (the rook hasnt moved before) and
+    // if castling is currently enabled (the rook hasnt moved before) and
     // that rook is currently moving, disable castling on that spot
     let disabled_castling =
         if can_castle.0 && position == BoardPosition::new(0, castle_row_y).unwrap() {

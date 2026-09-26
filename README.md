@@ -3,6 +3,12 @@
 This is a blazingly fast chess engine library written in Rust.
 It aims to be a complete, bug-free implementation of all chess rules.
 
+## Testing
+To test the library, run the following command in this directory
+```bash
+cargo test
+```
+
 ## FAQ
 
 ### How do you create a new chess game?
@@ -27,10 +33,3 @@ A board position is represented by the type `chess_rs::board::BoardPosition`, co
 
 ### How do you enumerate the board squares?
 `ChessBoard` has a method `ChessBoard::squares` that you can call to enumerate all board positions. For each of them you can call `ChessBoard::get_square` with the position, to get the square contents at that position.
-
-
-## Testing
-To test the library, run the following command in this directory
-```bash
-cargo test
-```
