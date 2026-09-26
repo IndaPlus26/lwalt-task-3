@@ -15,14 +15,14 @@ pub const SIDE_LENGTH: usize = 8;
 pub struct ChessBoard(pub [[ChessBoardSquare; SIDE_LENGTH]; SIDE_LENGTH]);
 
 /// A zero-indexed position on the chess board
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BoardPosition {
     x: u8,
     y: u8,
 }
 
 /// a type representing an offset in a board position
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct BoardPositionOffset {
     dx: i8,
     dy: i8,
@@ -32,7 +32,7 @@ pub struct BoardPositionOffset {
 pub type ChessBoardSquare = Option<ChessPiece>;
 
 /// A compact type of storing a change of a [`ChessBoard`], storing in only 17 bytes what would otherwise take 128
-#[derive(Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct DeltaChessBoard {
     // the max number of squares that can be changed by a single move is 4 (castling)
     store: [(BoardPosition, ChessBoardSquare); 4],
@@ -56,6 +56,23 @@ impl BoardPosition {
     pub fn to_one_indexed(&self) -> (u8, u8) {
         (self.x + 1, self.y + 1)
     }
+    /// get the chess representation of a coordinate
+    pub fn chess_display(&self) -> String {
+        let char1 = match self.x {
+            0 => 'a',
+            1 => 'b',
+            2 => 'c',
+            3 => 'd',
+            4 => 'e',
+            5 => 'f',
+            6 => 'g',
+            7 => 'h',
+            _ => panic!("board_pos invariant broken"),
+        };
+        let char2: char = (self.y + 1).into();
+        format!("{char1}{char2}")
+    }
+
     /// add a board offset to the board position, returning None if it lands out of bounds
     pub fn add(self, offset: BoardPositionOffset) -> Option<Self> {
         let x = self.x as i8 + offset.dx;
@@ -158,15 +175,15 @@ impl ChessBoard {
         let mut n_y = 0;
         while n_y < SIDE_LENGTH / 2 {
             // index of the row
-            let mut x = 0 + n_y;
-            while x < SIDE_LENGTH - 1 - n_y {
+            let mut x = n_y;
+            while x < (SIDE_LENGTH - 1) - n_y {
                 let item = rotated[n_y][x];
-                rotated[n_y][x] = rotated[SIDE_LENGTH - 1 - n_y][x];
-                rotated[SIDE_LENGTH - 1 - n_y][x] =
-                    rotated[SIDE_LENGTH - 1 - n_y][SIDE_LENGTH - 1 - x];
-                rotated[SIDE_LENGTH - 1 - n_y][SIDE_LENGTH - 1 - x] =
-                    rotated[n_y][SIDE_LENGTH - 1 - x];
-                rotated[n_y][SIDE_LENGTH - 1 - x] = item;
+                rotated[n_y][x] = rotated[(SIDE_LENGTH - 1) - n_y][x];
+                rotated[(SIDE_LENGTH - 1) - n_y][x] =
+                    rotated[(SIDE_LENGTH - 1) - n_y][(SIDE_LENGTH - 1) - x];
+                rotated[(SIDE_LENGTH - 1) - n_y][(SIDE_LENGTH - 1) - x] =
+                    rotated[n_y][(SIDE_LENGTH - 1) - x];
+                rotated[n_y][(SIDE_LENGTH - 1) - x] = item;
                 x += 1
             }
 
@@ -239,7 +256,8 @@ impl DeltaChessBoard {
                     );
                 }
                 // push all the elements one step and insert
-                self.store[..self.len as usize].copy_within(insert_index.., insert_index + 1);
+                self.store
+                    .copy_within(insert_index..self.len as usize, insert_index + 1);
                 self.store[insert_index] = (position, square);
                 self.len += 1;
             }
@@ -308,7 +326,7 @@ impl Mul<i8> for BoardPositionOffset {
     fn mul(self, rhs: i8) -> Self::Output {
         Self {
             dx: self.dx * rhs,
-            dy: self.dx * rhs,
+            dy: self.dy * rhs,
         }
     }
 }
@@ -417,7 +435,7 @@ impl Default for BoardPosition {
 }
 
 /// shorthand piece constants to make defining hardcoded board positions in code simpler
-mod board_init {
+pub mod board_init {
     use crate::chess::types::PieceType;
 
     use super::*;

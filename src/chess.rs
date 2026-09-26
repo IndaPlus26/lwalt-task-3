@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::iter;
+use std::fmt::Write;
+use std::{array, iter};
 
 use crate::chess::board::{BoardPosition, BoardPositionOffset, ChessBoard, DeltaChessBoard};
 use crate::chess::r#move::{
@@ -142,8 +143,108 @@ impl GameState {
         todo!()
     }
     /// convert the game state to a fen string
-    pub fn to_fen(&self) -> String {
-        todo!()
+    pub fn to_fen(&self) -> Result<String, std::fmt::Error> {
+        // board positions / ranks
+        let mut ranks: [String; board::SIDE_LENGTH] = array::from_fn(|_| String::new());
+        for rank in 0..7 {
+            let mut n_empty_squares = 0;
+            for x in 0..7 {
+                match self
+                    .board
+                    .get_square(BoardPosition::new(x, 7 - rank).unwrap())
+                {
+                    Some(piece) => {
+                        if n_empty_squares > 0 {
+                            ranks[rank as usize].push(n_empty_squares.into());
+                            n_empty_squares = 0;
+                        }
+                        let base = match piece.r#type {
+                            PieceType::Pawn => 'p',
+                            PieceType::Knight => 'n',
+                            PieceType::Bishop => 'b',
+                            PieceType::Rook => 'r',
+                            PieceType::Queen => 'q',
+                            PieceType::King => 'k',
+                        };
+                        ranks[rank as usize].push(match piece.color {
+                            Color::White => base.to_ascii_uppercase(),
+                            Color::Black => base,
+                        });
+                    }
+                    None => {
+                        n_empty_squares += 1;
+                    }
+                }
+            }
+            if n_empty_squares > 0 {
+                ranks[rank as usize].push(n_empty_squares.into());
+            }
+        }
+
+        let mut fen = ranks.join("/");
+
+        // separator
+        write!(&mut fen, " ")?;
+
+        // player at turn
+        write!(
+            &mut fen,
+            "{}",
+            match self.state.player_at_turn {
+                Color::White => 'w',
+                Color::Black => 'b',
+            }
+        )?;
+
+        // separator
+        write!(&mut fen, " ")?;
+
+        // castling
+        let mut castling_string = String::new();
+        if self.state.white_can_castle.1 {
+            write!(&mut castling_string, "K")?;
+        }
+        if self.state.white_can_castle.0 {
+            write!(&mut castling_string, "Q")?;
+        }
+        if self.state.black_can_castle.1 {
+            write!(&mut castling_string, "k")?;
+        }
+        if self.state.black_can_castle.0 {
+            write!(&mut castling_string, "q")?;
+        }
+        if castling_string.is_empty() {
+            write!(&mut fen, "-")?;
+        } else {
+            write!(&mut fen, "{}", castling_string)?;
+        }
+
+        // separator
+        write!(&mut fen, " ")?;
+
+        //en passant
+        match self.state.en_passant_square {
+            Some(square) => {
+                write!(&mut fen, "{}", square.chess_display())?;
+            }
+            None => {
+                write!(&mut fen, "-")?;
+            }
+        }
+
+        // separator
+        write!(&mut fen, " ")?;
+
+        // half move clock
+        write!(&mut fen, "{}", self.state.halfmove_clock)?;
+
+        // separator
+        write!(&mut fen, " ")?;
+
+        // n fullmoves
+        write!(&mut fen, "{}", self.state.n_fullmoves)?;
+
+        Ok(fen)
     }
 }
 
@@ -156,7 +257,7 @@ fn pseudo_valid_moves_from_directions<'a>(
     directions.into_iter().flat_map(move |direction| {
         // follow each direction's path until executing a capture, hitting a friendly team piece, or going outside the board bounds
         let mut path_finished = false;
-        (0i8..).map_while(move |i| {
+        (1i8..).map_while(move |i| {
             if path_finished {
                 None
             // if inside board bounds, and not hitting a same team piece
@@ -435,7 +536,7 @@ fn pseudo_valid_knight_moves<'a>(
                 board_delta,
                 replaced_piece,
             }) = move_piece(&board, position, destination)
-            && replaced_piece.is_none_or(|replaced_piece| replaced_piece.color == color)
+            && replaced_piece.is_none_or(|replaced_piece| replaced_piece.color == color.toggled())
         {
             Some((
                 board_delta,
@@ -617,10 +718,12 @@ fn pseudo_valid_king_moves<'a>(
     //  ###
     //
 
-    let Some(ChessPiece {
-        color,
-        r#type: PieceType::King,
-    }) = board.get_square(position)
+    let Some(
+        piece @ ChessPiece {
+            color,
+            r#type: PieceType::King,
+        },
+    ) = board.get_square(position)
     else {
         panic!("king invariant broken");
     };
@@ -640,108 +743,63 @@ fn pseudo_valid_king_moves<'a>(
         Color::White => position_state.white_can_castle,
         Color::Black => position_state.black_can_castle,
     };
-    // TODO fix this taking up so much code for a simple castling implementation
-    // if castling is enabled on the left side, make sure all squares inbetween are empty
-    let left_castle = if can_castle.0
+
+    let castling_row_y = match color {
+        Color::White => 0,
+        Color::Black => 7,
+    };
+    let castle = |can_castle, old_king_x, new_king_x, old_rook_x, new_rook_x| {
+        if can_castle &&
+        // the king is at the right position
+        position == BoardPosition::new(old_king_x, castling_row_y).unwrap()
+        // the rook is at the right position
+        && board
+            .get_square(BoardPosition::new(old_rook_x, castling_row_y).unwrap())
+            .is_some_and(|piece| piece.color == color && piece.r#type == PieceType::Rook)
         // all squares inbetween are empty
-        && (1..position.x()).all(|x| {board.get_square(BoardPosition::new(x, position.y()).unwrap()).is_none()})
-    {
-        let mut board_delta = DeltaChessBoard::new();
-        let new_king_position = BoardPosition::new(position.x() - 2, position.y()).unwrap();
-        let new_rook_position = BoardPosition::new(position.x() - 1, position.y()).unwrap();
-        let old_rook_position = BoardPosition::new(0, position.y()).unwrap();
+        && ((old_king_x).min(new_king_x)+1..=(old_king_x).max(new_king_x)).all(|x| {
+            board
+                .get_square(BoardPosition::new(x, castling_row_y).unwrap())
+                .is_none()
+        }) {
+            let mut board_delta = DeltaChessBoard::new();
+            let new_king_position = BoardPosition::new(new_king_x, castling_row_y).unwrap();
+            let new_rook_position = BoardPosition::new(new_rook_x, castling_row_y).unwrap();
+            let old_rook_position = BoardPosition::new(old_rook_x, castling_row_y).unwrap();
 
-        // move the king
-        board_delta.insert(
-            new_king_position,
-            Some(ChessPiece {
-                color,
-                r#type: PieceType::King,
-            }),
-        );
-        // move the rook
-        board_delta.insert(
-            new_rook_position,
-            Some(ChessPiece {
-                color,
-                r#type: PieceType::Rook,
-            }),
-        );
-        // empty where the king and rook used to be
-        board_delta.insert(position, None);
-        board_delta.insert(old_rook_position, None);
-        Some((
-            board_delta,
-            MoveInfo {
-                piece: ChessPiece {
+            // move the king
+            board_delta.insert(new_king_position, Some(piece));
+            // move the rook
+            board_delta.insert(
+                new_rook_position,
+                Some(ChessPiece {
                     color,
-                    r#type: PieceType::King,
+                    r#type: PieceType::Rook,
+                }),
+            );
+            // empty where the king and rook used to be
+            board_delta.insert(position, None);
+            board_delta.insert(old_rook_position, None);
+            Some((
+                board_delta,
+                MoveInfo {
+                    piece,
+                    from: position,
+                    to: new_king_position,
+                    captured_piece: None,
+                    promotion: None,
+                    castling: Some((old_rook_position, new_rook_position)),
+                    en_passant: false,
+                    disabled_castling: (Some(()), Some(())),
+                    set_en_passant_square: None,
                 },
-                from: position,
-                to: new_king_position,
-                captured_piece: None,
-                promotion: None,
-                castling: Some((old_rook_position, new_rook_position)),
-                en_passant: false,
-                disabled_castling: (Some(()), Some(())),
-                set_en_passant_square: None,
-            },
-        ))
-    } else {
-        None
+            ))
+        } else {
+            None
+        }
     };
-
-    let right_castle = if can_castle.1
-                    // all squares inbetween are empty
-                    && (position.x()+1..7).all(|x| {
-                        board
-                            .get_square(BoardPosition::new(x, position.y()).unwrap())
-                            .is_none()
-                    }) {
-        let mut board_delta = DeltaChessBoard::new();
-        let new_king_position = BoardPosition::new(position.x() + 2, position.y()).unwrap();
-        let new_rook_position = BoardPosition::new(position.x() + 1, position.y()).unwrap();
-        let old_rook_position = BoardPosition::new(7, position.y()).unwrap();
-
-        // move the king
-        board_delta.insert(
-            new_king_position,
-            Some(ChessPiece {
-                color,
-                r#type: PieceType::King,
-            }),
-        );
-        // move the rook
-        board_delta.insert(
-            new_rook_position,
-            Some(ChessPiece {
-                color,
-                r#type: PieceType::Rook,
-            }),
-        );
-        // empty where the king and rook used to be
-        board_delta.insert(position, None);
-        board_delta.insert(old_rook_position, None);
-        Some((
-            board_delta,
-            MoveInfo {
-                piece: ChessPiece {
-                    color,
-                    r#type: PieceType::King,
-                },
-                from: position,
-                to: new_king_position,
-                captured_piece: None,
-                promotion: None,
-                castling: Some((old_rook_position, new_rook_position)),
-                en_passant: false,
-                disabled_castling: (Some(()), Some(())),
-                set_en_passant_square: None,
-            },
-        ))
-    } else {
-        None
-    };
+    let left_castle = castle(can_castle.0, 4, 2, 0, 3);
+    let right_castle = castle(can_castle.1, 4, 6, 7, 5);
 
     // if castling wasnt already disabled, moving the king or castling will definitely disable it
     let disabled_castling = match can_castle {
@@ -760,15 +818,13 @@ fn pseudo_valid_king_moves<'a>(
                         board_delta,
                         replaced_piece,
                     }) = move_piece(&board, position, destination)
-                    && replaced_piece.is_none_or(|replaced_piece| replaced_piece.color == color)
+                    && replaced_piece
+                        .is_none_or(|replaced_piece| replaced_piece.color == color.toggled())
                 {
                     Some((
                         board_delta,
                         MoveInfo {
-                            piece: ChessPiece {
-                                color,
-                                r#type: PieceType::King,
-                            },
+                            piece,
                             from: position,
                             to: destination,
                             captured_piece: replaced_piece
@@ -843,6 +899,22 @@ impl ChessGame {
         }
     }
 
+    pub fn from_game_state(state: GameState) -> Self {
+        let valid_moves: HashMap<DeltaChessBoard, _> = state.all_valid_moves().collect();
+        Self {
+            _init_state: state.clone(),
+            moves: Vec::new(),
+
+            game_termination: if valid_moves.is_empty() {
+                Some(GameTermination::StaleMate)
+            } else {
+                None
+            },
+            valid_moves,
+            state,
+        }
+    }
+
     /// returns None if the game has ended
     pub fn turn(&self) -> Option<Color> {
         if self.game_termination.is_some() {
@@ -857,12 +929,18 @@ impl ChessGame {
         }
     }
 
-    /// if the move doesn't exist inside valid moves it will return Err(())
+    /// if the move doesn't exist inside valid moves it will return Err
     pub fn r#move(
         &mut self,
         r#move: DeltaChessBoard,
-    ) -> Result<(ExtendedMoveInfo, Option<GameTermination>), ()> {
-        let intermediate_move_info = self.valid_moves.remove(&r#move).ok_or(())?;
+    ) -> Result<(ExtendedMoveInfo, Option<GameTermination>), MoveError> {
+        if self.game_termination.is_some() {
+            return Err(MoveError::GameAlreadyEnded);
+        }
+        let intermediate_move_info = self
+            .valid_moves
+            .remove(&r#move)
+            .ok_or(MoveError::InvalidMove)?;
         let player = intermediate_move_info.piece.color;
 
         // update board
@@ -958,4 +1036,9 @@ impl ChessGame {
         self.game_termination = game_termination.clone();
         Ok((new_move_info, game_termination))
     }
+}
+
+pub enum MoveError {
+    InvalidMove,
+    GameAlreadyEnded,
 }

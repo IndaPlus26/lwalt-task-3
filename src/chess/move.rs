@@ -61,7 +61,7 @@ pub enum CheckEvent {
 
 /// Same as [`ExtendedMoveInfo`] but not containing information about check. Only for internal use
 /// representating the transition stage before a real [`ExtendedMoveInfo`] is created
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MoveInfo {
     /// the piece that was moved
     pub piece: ChessPiece,
@@ -86,7 +86,7 @@ pub struct MoveInfo {
     pub set_en_passant_square: Option<BoardPosition>,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum PromotionPiece {
     Queen,
     Rook,
