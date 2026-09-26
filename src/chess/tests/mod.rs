@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::chess::{
     ChessGame, GameState, PositionState,
     board::{BoardPosition, ChessBoard, DeltaChessBoard},
-    r#move::MoveInfo,
+    r#move::{MoveInfo, PromotionPiece},
     types::{ChessPiece, Color, PieceType},
 };
 
@@ -181,13 +181,13 @@ fn valid_moves_castling() {
         r#type: PieceType::Rook,
     };
     let castling_left = {
-        let origin = BoardPosition::new(0, 4).unwrap();
-        let destination = BoardPosition::new(0, 2).unwrap();
+        let origin = BoardPosition::new(4, 0).unwrap();
+        let destination = BoardPosition::new(2, 0).unwrap();
         let mut delta_board = DeltaChessBoard::new();
         delta_board.insert(origin, None);
         delta_board.insert(destination, Some(white_king));
         let rook_origin = BoardPosition::new(0, 0).unwrap();
-        let rook_destination = BoardPosition::new(0, 3).unwrap();
+        let rook_destination = BoardPosition::new(3, 0).unwrap();
 
         delta_board.insert(rook_origin, None);
         delta_board.insert(rook_destination, Some(white_rook));
@@ -205,13 +205,13 @@ fn valid_moves_castling() {
         (delta_board, move_info)
     };
     let castling_right = {
-        let origin = BoardPosition::new(0, 4).unwrap();
-        let destination = BoardPosition::new(0, 6).unwrap();
+        let origin = BoardPosition::new(4, 0).unwrap();
+        let destination = BoardPosition::new(6, 0).unwrap();
         let mut delta_board = DeltaChessBoard::new();
         delta_board.insert(origin, None);
         delta_board.insert(destination, Some(white_king));
-        let rook_origin = BoardPosition::new(0, 7).unwrap();
-        let rook_destination = BoardPosition::new(0, 5).unwrap();
+        let rook_origin = BoardPosition::new(7, 0).unwrap();
+        let rook_destination = BoardPosition::new(5, 0).unwrap();
 
         delta_board.insert(rook_origin, None);
         delta_board.insert(rook_destination, Some(white_rook));
@@ -239,5 +239,175 @@ fn valid_moves_castling() {
         game.valid_moves
             .remove(&castling_right.0)
             .is_some_and(|move_info| move_info == castling_right.1)
+    );
+}
+
+#[test]
+fn chess_board_rotation() {
+    use crate::chess::board::board_init::*;
+
+    //    [r n b q k b n r]
+    //    [p p p p p p p p]
+    //    [e e e e e e e e]
+    //    [e e e e e e e e]
+    //    [e e e e e e e e]
+    //    [e e e e e e e e]
+    //    [P P P P P P P P]
+    //    [R N B Q K B N R]
+    //    =>
+    //    [R P e e e e p r]
+    //    [N P e e e e p n]
+    //    [B P e e e e p b]
+    //    [Q P e e e e p q]
+    //    [K P e e e e p k]
+    //    [B P e e e e p b]
+    //    [N P e e e e p n]
+    //    [R P e e e e p r]
+    let board = ChessBoard::from_rotated([
+        [BR, BN, BB, BQ, BK, BB, BN, BR],
+        [BP, BP, BP, BP, BP, BP, BP, BP],
+        [EE, EE, EE, EE, EE, EE, EE, EE],
+        [EE, EE, EE, EE, EE, EE, EE, EE],
+        [EE, EE, EE, EE, EE, EE, EE, EE],
+        [EE, EE, EE, EE, EE, EE, EE, EE],
+        [WP, WP, WP, WP, WP, WP, WP, WP],
+        [WR, WN, WB, WQ, WK, WB, WN, WR],
+    ]);
+    let result = [
+        [WR, WP, EE, EE, EE, EE, BP, BR],
+        [WN, WP, EE, EE, EE, EE, BP, BN],
+        [WB, WP, EE, EE, EE, EE, BP, BB],
+        [WQ, WP, EE, EE, EE, EE, BP, BQ],
+        [WK, WP, EE, EE, EE, EE, BP, BK],
+        [WB, WP, EE, EE, EE, EE, BP, BB],
+        [WN, WP, EE, EE, EE, EE, BP, BN],
+        [WR, WP, EE, EE, EE, EE, BP, BR],
+    ];
+
+    // println!("{board}");
+    assert_eq!(board.0, result);
+}
+#[test]
+fn promotion() {
+    use crate::chess::board::board_init::*;
+    let board = ChessBoard::from_rotated([
+        [EE, EE, BR, BR, EE, EE, EE, EE],
+        [EE, EE, EE, WP, EE, EE, EE, EE],
+        [EE, EE, EE, EE, EE, EE, EE, EE],
+        [EE, EE, EE, EE, EE, EE, EE, EE],
+        [EE, EE, EE, EE, EE, EE, EE, EE],
+        [EE, EE, EE, EE, EE, EE, EE, EE],
+        [EE, EE, EE, EE, EE, EE, EE, EE],
+        [EE, EE, EE, EE, EE, EE, EE, EE],
+    ]);
+    let state = PositionState::default();
+    let game_state = GameState { state, board };
+    let mut game = ChessGame::from_game_state(game_state);
+    let white_pawn = ChessPiece {
+        color: Color::White,
+        r#type: PieceType::Pawn,
+    };
+    let black_rook = ChessPiece {
+        color: Color::Black,
+        r#type: PieceType::Rook,
+    };
+
+    assert_eq!(game.valid_moves.len(), 4);
+
+    for (delta_board, move_info) in [
+        PromotionPiece::Knight,
+        PromotionPiece::Bishop,
+        PromotionPiece::Rook,
+        PromotionPiece::Queen,
+    ]
+    .into_iter()
+    .map(|prom_piece| {
+        let origin = BoardPosition::new(3, 6).unwrap();
+        let destination = BoardPosition::new(2, 7).unwrap();
+        let mut delta_board = DeltaChessBoard::new();
+        delta_board.insert(origin, None);
+        delta_board.insert(
+            destination,
+            Some(ChessPiece {
+                color: Color::White,
+                r#type: prom_piece.into(),
+            }),
+        );
+        let move_info = MoveInfo {
+            piece: white_pawn,
+            from: origin,
+            to: destination,
+            captured_piece: Some((black_rook, destination)),
+            promotion: Some(prom_piece),
+            castling: None,
+            en_passant: false,
+            disabled_castling: (None, None),
+            set_en_passant_square: None,
+        };
+        (delta_board, move_info)
+    }) {
+        assert!(
+            game.valid_moves
+                .remove(&delta_board)
+                .is_some_and(|mov_info| mov_info == move_info)
+        );
+    }
+}
+#[test]
+fn en_passant() {
+    use crate::chess::board::board_init::*;
+    let board = ChessBoard::from_rotated([
+        [EE, EE, EE, EE, EE, EE, EE, EE],
+        [EE, EE, EE, EE, EE, EE, EE, EE],
+        [EE, EE, EE, EE, EE, EE, EE, EE],
+        [EE, EE, EE, EE, EE, EE, EE, EE],
+        [EE, EE, BP, WP, EE, EE, EE, EE],
+        [EE, EE, EE, EE, EE, EE, EE, EE],
+        [EE, EE, EE, EE, EE, EE, EE, EE],
+        [EE, EE, EE, EE, EE, EE, EE, EE],
+    ]);
+    let state = PositionState {
+        player_at_turn: Color::Black,
+        en_passant_square: Some(BoardPosition::new(3, 2).unwrap()),
+        ..Default::default()
+    };
+    let game_state = GameState { state, board };
+    let mut game = ChessGame::from_game_state(game_state);
+    let white_pawn = ChessPiece {
+        color: Color::White,
+        r#type: PieceType::Pawn,
+    };
+    let black_pawn = ChessPiece {
+        color: Color::Black,
+        r#type: PieceType::Pawn,
+    };
+    let black_pawn_from = BoardPosition::new(2, 3).unwrap();
+    let black_pawn_to = BoardPosition::new(3, 2).unwrap();
+    let white_pawn_pos = BoardPosition::new(3, 3).unwrap();
+
+    let en_passant = {
+        let mut delta_board = DeltaChessBoard::new();
+        delta_board.insert(white_pawn_pos, None);
+        delta_board.insert(black_pawn_to, Some(black_pawn));
+        delta_board.insert(black_pawn_from, None);
+
+        let move_info = MoveInfo {
+            piece: black_pawn,
+            from: black_pawn_from,
+            to: black_pawn_to,
+            captured_piece: Some((white_pawn, white_pawn_pos)),
+            promotion: None,
+            castling: None,
+            en_passant: true,
+            disabled_castling: (None, None),
+            set_en_passant_square: None,
+        };
+
+        (delta_board, move_info)
+    };
+    assert!(
+        game.valid_moves
+            .remove(&en_passant.0)
+            .is_some_and(|mov_info| mov_info == en_passant.1)
     );
 }

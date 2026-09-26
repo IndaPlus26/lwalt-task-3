@@ -69,7 +69,7 @@ impl BoardPosition {
             7 => 'h',
             _ => panic!("board_pos invariant broken"),
         };
-        let char2: char = (self.y + 1).into();
+        let char2 = (self.y + 1).to_string();
         format!("{char1}{char2}")
     }
 
@@ -171,6 +171,24 @@ impl ChessBoard {
     /// construct a chess board from an array of arrays, and rotate it so it matches the
     /// right indexing. Useful when defining constant chess boards in code
     pub const fn from_rotated(mut rotated: [[ChessBoardSquare; SIDE_LENGTH]; SIDE_LENGTH]) -> Self {
+        //    [r n b q k b n r]
+        //    [p p p p p p p p]
+        //    [e e e e e e e e]
+        //    [e e e e e e e e]
+        //    [e e e e e e e e]
+        //    [e e e e e e e e]
+        //    [P P P P P P P P]
+        //    [R N B Q K B N R]
+        //    =>
+        //    [R P e e e e p r]
+        //    [N P e e e e p n]
+        //    [B P e e e e p b]
+        //    [Q P e e e e p q]
+        //    [K P e e e e p k]
+        //    [B P e e e e p b]
+        //    [N P e e e e p n]
+        //    [R P e e e e p r]
+        //
         // diagonal starting top left until the middle
         let mut n_y = 0;
         while n_y < SIDE_LENGTH / 2 {
@@ -178,12 +196,12 @@ impl ChessBoard {
             let mut x = n_y;
             while x < (SIDE_LENGTH - 1) - n_y {
                 let item = rotated[n_y][x];
-                rotated[n_y][x] = rotated[(SIDE_LENGTH - 1) - n_y][x];
-                rotated[(SIDE_LENGTH - 1) - n_y][x] =
+                rotated[n_y][x] = rotated[(SIDE_LENGTH - 1) - x][n_y];
+                rotated[(SIDE_LENGTH - 1) - x][n_y] =
                     rotated[(SIDE_LENGTH - 1) - n_y][(SIDE_LENGTH - 1) - x];
                 rotated[(SIDE_LENGTH - 1) - n_y][(SIDE_LENGTH - 1) - x] =
-                    rotated[n_y][(SIDE_LENGTH - 1) - x];
-                rotated[n_y][(SIDE_LENGTH - 1) - x] = item;
+                    rotated[x][(SIDE_LENGTH - 1) - n_y];
+                rotated[x][(SIDE_LENGTH - 1) - n_y] = item;
                 x += 1
             }
 
@@ -354,7 +372,7 @@ impl Sub for BoardPosition {
 
 impl Display for ChessBoard {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for y in (SIDE_LENGTH - 1)..=0 {
+        for y in (0..SIDE_LENGTH).rev() {
             for x in 0..SIDE_LENGTH {
                 write!(
                     f,

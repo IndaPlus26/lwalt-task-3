@@ -66,10 +66,10 @@ impl GameState {
                     let mut board = self.board.clone();
                     board.update(&board_delta);
 
-                    // validitiy check
+                    // validity check
                     // check the opponents next valid moves
-                    let mut state = self.state.clone();
-                    state.player_at_turn.toggle();
+                    let state = self.state.updated_from_move(proposed_move);
+
                     let game_state = GameState { board, state }; // both update board and toggle player
                     for (_, opponent_move) in game_state
                         .board
@@ -84,6 +84,7 @@ impl GameState {
                             // R###K
                             // ##KR#
 
+                            // maybe for pawns this wont work because they dont capture the same way as they move, TODO: maybe fix thislater
                             if opponent_move.to.y() == rook_init_pos.y()
                                 // if within 2 squares of the king's starting position (meaning the king passes through it)
                                 && opponent_move.to.x().abs_diff(proposed_move.from.x()) <= 2
@@ -146,16 +147,15 @@ impl GameState {
     pub fn to_fen(&self) -> Result<String, std::fmt::Error> {
         // board positions / ranks
         let mut ranks: [String; board::SIDE_LENGTH] = array::from_fn(|_| String::new());
-        for rank in 0..7 {
+        for rank in 0..board::SIDE_LENGTH {
             let mut n_empty_squares = 0;
-            for x in 0..7 {
-                match self
-                    .board
-                    .get_square(BoardPosition::new(x, 7 - rank).unwrap())
-                {
+            for x in 0..board::SIDE_LENGTH {
+                match self.board.get_square(
+                    BoardPosition::new(x as u8, ((board::SIDE_LENGTH - 1) - rank) as u8).unwrap(),
+                ) {
                     Some(piece) => {
                         if n_empty_squares > 0 {
-                            ranks[rank as usize].push(n_empty_squares.into());
+                            ranks[rank as usize].push_str(&n_empty_squares.to_string());
                             n_empty_squares = 0;
                         }
                         let base = match piece.r#type {
@@ -177,7 +177,7 @@ impl GameState {
                 }
             }
             if n_empty_squares > 0 {
-                ranks[rank as usize].push(n_empty_squares.into());
+                ranks[rank as usize].push_str(&n_empty_squares.to_string());
             }
         }
 
@@ -757,11 +757,12 @@ fn pseudo_valid_king_moves<'a>(
             .get_square(BoardPosition::new(old_rook_x, castling_row_y).unwrap())
             .is_some_and(|piece| piece.color == color && piece.r#type == PieceType::Rook)
         // all squares inbetween are empty
-        && ((old_king_x).min(new_king_x)+1..=(old_king_x).max(new_king_x)).all(|x| {
-            board
-                .get_square(BoardPosition::new(x, castling_row_y).unwrap())
-                .is_none()
-        }) {
+        && (old_king_x.min(old_rook_x)+1..old_king_x.max(old_rook_x)).all(|x|
+                board
+                    .get_square(BoardPosition::new(x, castling_row_y).unwrap())
+                    .is_none()
+                    )
+        {
             let mut board_delta = DeltaChessBoard::new();
             let new_king_position = BoardPosition::new(new_king_x, castling_row_y).unwrap();
             let new_rook_position = BoardPosition::new(new_rook_x, castling_row_y).unwrap();
@@ -858,7 +859,7 @@ pub enum GameResult {
 #[derive(Clone)]
 pub struct PositionState {
     player_at_turn: Color,
-    /// (king-side, queen-side)
+    /// (queen-side, king-side)
     white_can_castle: (bool, bool),
     black_can_castle: (bool, bool),
     /// a square where en passant is possible (if a pawn moved past it the previous move)
@@ -882,6 +883,48 @@ impl Default for PositionState {
     }
 }
 
+impl PositionState {
+    /// get an updated version of a position state after a move has occured
+    pub fn updated_from_move(&self, move_info: &MoveInfo) -> Self {
+        Self {
+            white_can_castle: if let Color::White = move_info.piece.color {
+                match move_info.disabled_castling {
+                    (None, None) => self.white_can_castle,
+                    (None, Some(_)) => (self.white_can_castle.0, false),
+                    (Some(_), None) => (false, self.white_can_castle.1),
+                    (Some(_), Some(_)) => (false, false),
+                }
+            } else {
+                self.white_can_castle
+            },
+            black_can_castle: if let Color::Black = move_info.piece.color {
+                match move_info.disabled_castling {
+                    (None, None) => self.black_can_castle,
+                    (None, Some(_)) => (self.black_can_castle.0, false),
+                    (Some(_), None) => (false, self.black_can_castle.1),
+                    (Some(_), Some(_)) => (false, false),
+                }
+            } else {
+                self.black_can_castle
+            },
+            en_passant_square: move_info.set_en_passant_square,
+            halfmove_clock: if move_info.piece.r#type == PieceType::Pawn
+                || move_info.captured_piece.is_some()
+            {
+                0
+            } else {
+                self.halfmove_clock + 1
+            },
+            n_fullmoves: self.n_fullmoves
+                + match self.player_at_turn {
+                    Color::White => 0,
+                    Color::Black => 1,
+                },
+            player_at_turn: self.player_at_turn.toggled(),
+        }
+    }
+}
+
 impl ChessGame {
     pub fn new() -> Self {
         let state = GameState {
@@ -901,15 +944,44 @@ impl ChessGame {
 
     pub fn from_game_state(state: GameState) -> Self {
         let valid_moves: HashMap<DeltaChessBoard, _> = state.all_valid_moves().collect();
+        // check for check
+        let check_state = GameState {
+            board: state.board.clone(),
+            state: PositionState {
+                player_at_turn: state.state.player_at_turn.toggled(),
+                en_passant_square: None,
+                ..state.state
+            },
+        };
+        // check for check
+        let is_check = check_state
+            .board
+            .squares()
+            .flat_map(|square| check_state.pseudo_valid_moves(square))
+            .find(|(_, move_info)| {
+                move_info
+                    .captured_piece
+                    .is_some_and(|piece| piece.0.r#type == PieceType::King)
+            })
+            .is_some(); // update state based on how the move changed it
+
+        let stalemate = if valid_moves.is_empty() { true } else { false };
+        let game_termination = if stalemate && is_check {
+            Some(GameTermination::CheckMate(
+                state.state.player_at_turn.toggled(),
+            ))
+        } else if stalemate {
+            Some(GameTermination::StaleMate)
+        } else if state.state.halfmove_clock >= 100 {
+            Some(GameTermination::FiftyMoveRule)
+        } else {
+            None
+        };
         Self {
             _init_state: state.clone(),
             moves: Vec::new(),
 
-            game_termination: if valid_moves.is_empty() {
-                Some(GameTermination::StaleMate)
-            } else {
-                None
-            },
+            game_termination,
             valid_moves,
             state,
         }
@@ -920,12 +992,7 @@ impl ChessGame {
         if self.game_termination.is_some() {
             None
         } else {
-            Some(
-                self.moves
-                    .last()
-                    .map(|r#move| r#move.1.piece.color.toggled())
-                    .unwrap_or(Color::White),
-            )
+            Some(self.state.state.player_at_turn)
         }
     }
 
@@ -943,20 +1010,24 @@ impl ChessGame {
             .ok_or(MoveError::InvalidMove)?;
         let player = intermediate_move_info.piece.color;
 
-        // update board
+        // update board and state
         let mut new_board = self.state.board.clone();
         new_board.update(&r#move);
-        let new_position_state = self.state.state.clone();
+        let new_position_state = self.state.state.updated_from_move(&intermediate_move_info);
 
-        // check for check
-        let mut new_state = GameState {
-            board: new_board,
-            state: new_position_state,
+        let check_state = GameState {
+            board: new_board.clone(),
+            state: PositionState {
+                player_at_turn: intermediate_move_info.piece.color,
+                en_passant_square: None,
+                ..new_position_state
+            },
         };
-        let is_check = new_state
+        // check for check
+        let is_check = check_state
             .board
             .squares()
-            .flat_map(|square| new_state.pseudo_valid_moves(square))
+            .flat_map(|square| check_state.pseudo_valid_moves(square))
             .find(|(_, move_info)| {
                 move_info
                     .captured_piece
@@ -964,47 +1035,17 @@ impl ChessGame {
             })
             .is_some(); // update state based on how the move changed it
 
-        let new_position_state = PositionState {
-            white_can_castle: if let Color::White = intermediate_move_info.piece.color {
-                match intermediate_move_info.disabled_castling {
-                    (None, None) => self.state.state.white_can_castle,
-                    (None, Some(_)) => (self.state.state.white_can_castle.0, false),
-                    (Some(_), None) => (false, self.state.state.white_can_castle.1),
-                    (Some(_), Some(_)) => (false, false),
-                }
-            } else {
-                self.state.state.white_can_castle
-            },
-            black_can_castle: if let Color::Black = intermediate_move_info.piece.color {
-                match intermediate_move_info.disabled_castling {
-                    (None, None) => self.state.state.black_can_castle,
-                    (None, Some(_)) => (self.state.state.black_can_castle.0, false),
-                    (Some(_), None) => (false, self.state.state.black_can_castle.1),
-                    (Some(_), Some(_)) => (false, false),
-                }
-            } else {
-                self.state.state.black_can_castle
-            },
-            en_passant_square: intermediate_move_info.set_en_passant_square,
-            halfmove_clock: if intermediate_move_info.piece.r#type == PieceType::Pawn
-                || intermediate_move_info.captured_piece.is_some()
-            {
-                0
-            } else {
-                self.state.state.halfmove_clock + 1
-            },
-            n_fullmoves: self.state.state.n_fullmoves
-                + match self.state.state.player_at_turn {
-                    Color::White => 0,
-                    Color::Black => 1,
-                },
-            player_at_turn: self.state.state.player_at_turn.toggled(),
+        // update state from move
+        self.state = GameState {
+            board: new_board,
+            state: new_position_state,
         };
-        new_state.state = new_position_state;
 
+        // update valid moves
         self.valid_moves.clear();
-        self.valid_moves.extend(new_state.all_valid_moves());
+        self.valid_moves.extend(self.state.all_valid_moves());
 
+        // check for stalemate/checkmate and get ExtendedMoveInfo
         let stalemate = if self.valid_moves.is_empty() {
             true
         } else {
@@ -1019,16 +1060,13 @@ impl ChessGame {
                 (false, false) => None,
             },
         );
-
-        // update the rest of the state
-        self.state = new_state;
         self.moves.push((r#move, new_move_info.clone()));
 
         let game_termination = if stalemate && is_check {
             Some(GameTermination::CheckMate(player))
         } else if stalemate {
             Some(GameTermination::StaleMate)
-        } else if self.state.state.halfmove_clock == 100 {
+        } else if self.state.state.halfmove_clock >= 100 {
             Some(GameTermination::FiftyMoveRule)
         } else {
             None
