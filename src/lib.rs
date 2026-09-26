@@ -58,67 +58,65 @@ pub enum GameTermination {
 // always staying on the same abstraction layer
 impl GameState {
     /// Get all the unique valid moves at a certain position
-    pub fn all_valid_moves<'a>(
-        &'a self,
-    ) -> Box<dyn Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a> {
-        Box::new(self.board.squares().flat_map(|pos| self.valid_moves(pos)))
+    pub fn all_valid_moves<'a>(&'a self) -> impl Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a {
+        self.board.squares().flat_map(|pos| self.valid_moves(pos))
     }
 
     /// Get all the unique valid moves for a piece at a certain position, including with check rules
     pub fn valid_moves<'a>(
         &'a self,
         pos: BoardPosition,
-    ) -> Box<dyn Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a> {
-        Box::new(
-            self.pseudo_valid_moves(pos)
-                .filter(|(board_delta, proposed_move)| {
-                    let mut board = self.board.clone();
-                    board.update(&board_delta);
+    ) -> impl Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a {
+        self.pseudo_valid_moves(pos)
+            .filter(|(board_delta, proposed_move)| {
+                // TODO: check if i could maybe pass the board around, and apply changes then revert them after
+                // each iteration, instead of just cloning the board
+                let mut board = self.board.clone();
+                board.update(&board_delta);
 
-                    // validity check
-                    // check the opponents next valid moves
-                    let state = self.state.updated_from_move(proposed_move);
+                // validity check
+                // check the opponents next valid moves
+                let state = self.state.updated_from_move(proposed_move);
 
-                    let game_state = GameState { board, state }; // both update board and toggle player
-                    for (_, opponent_move) in game_state
-                        .board
-                        .squares()
-                        .flat_map(|position| game_state.pseudo_valid_moves(position))
-                    {
-                        // if the proposed move is a castling, and if any opponent move touches a square inbetween,
-                        // the castling is invalid.
-                        if let Some((rook_init_pos, _)) = proposed_move.castling {
-                            let castle_len = rook_init_pos.x().abs_diff(proposed_move.from.x());
+                let game_state = GameState { board, state }; // both update board and toggle player
+                for (_, opponent_move) in game_state
+                    .board
+                    .squares()
+                    .flat_map(|position| game_state.pseudo_valid_moves(position))
+                {
+                    // if the proposed move is a castling, and if any opponent move touches a square inbetween,
+                    // the castling is invalid.
+                    if let Some((rook_init_pos, _)) = proposed_move.castling {
+                        let castle_len = rook_init_pos.x().abs_diff(proposed_move.from.x());
 
-                            // R###K
-                            // ##KR#
+                        // R###K
+                        // ##KR#
 
-                            // maybe for pawns this wont work because they dont capture the same way as they move, TODO: maybe fix thislater
-                            if opponent_move.to.y() == rook_init_pos.y()
+                        // maybe for pawns this wont work because they dont capture the same way as they move, TODO: maybe fix thislater
+                        if opponent_move.to.y() == rook_init_pos.y()
                                 // if within 2 squares of the king's starting position (meaning the king passes through it)
                                 && opponent_move.to.x().abs_diff(proposed_move.from.x()) <= 2
                                 // and within castle_len squares from the rook
                                 && opponent_move.to.x().abs_diff(rook_init_pos.x()) <= castle_len
-                            {
-                                return false;
-                            }
-                        }
-
-                        // if an opponent move captures your king, the proposed move is invalid and filtered out
-                        if let Some((
-                            ChessPiece {
-                                r#type: PieceType::King,
-                                ..
-                            },
-                            _,
-                        )) = opponent_move.captured_piece
                         {
                             return false;
                         }
                     }
-                    return true;
-                }),
-        )
+
+                    // if an opponent move captures your king, the proposed move is invalid and filtered out
+                    if let Some((
+                        ChessPiece {
+                            r#type: PieceType::King,
+                            ..
+                        },
+                        _,
+                    )) = opponent_move.captured_piece
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            })
     }
 
     /// Get all the unique valid moves for a piece at a certain position, not including check rules
@@ -140,12 +138,18 @@ impl GameState {
             return Box::new(iter::empty());
         }
         match r#type {
-            PieceType::Pawn => pseudo_valid_pawn_moves(position, &self.board, &self.state),
-            PieceType::Knight => pseudo_valid_knight_moves(position, &self.board),
-            PieceType::Bishop => pseudo_valid_bishop_moves(position, &self.board),
-            PieceType::Rook => pseudo_valid_rook_moves(position, &self.board, &self.state),
-            PieceType::Queen => pseudo_valid_queen_moves(position, &self.board),
-            PieceType::King => pseudo_valid_king_moves(position, &self.board, &self.state),
+            PieceType::Pawn => {
+                Box::new(pseudo_valid_pawn_moves(position, &self.board, &self.state))
+            }
+            PieceType::Knight => Box::new(pseudo_valid_knight_moves(position, &self.board)),
+            PieceType::Bishop => Box::new(pseudo_valid_bishop_moves(position, &self.board)),
+            PieceType::Rook => {
+                Box::new(pseudo_valid_rook_moves(position, &self.board, &self.state))
+            }
+            PieceType::Queen => Box::new(pseudo_valid_queen_moves(position, &self.board)),
+            PieceType::King => {
+                Box::new(pseudo_valid_king_moves(position, &self.board, &self.state))
+            }
         }
     }
     /// Import a game state from a fen string (standardized compact chess position format).
@@ -315,7 +319,7 @@ fn pseudo_valid_pawn_moves<'a>(
     position: BoardPosition,
     board: &'a ChessBoard,
     position_state: &'a PositionState,
-) -> Box<dyn Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a> {
+) -> impl Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a {
     let Some(
         piece @ ChessPiece {
             color,
@@ -523,7 +527,7 @@ fn pseudo_valid_pawn_moves<'a>(
 fn pseudo_valid_knight_moves<'a>(
     position: BoardPosition,
     board: &'a ChessBoard,
-) -> Box<dyn Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a> {
+) -> impl Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a {
     //  # #
     // #   #
     //   O
@@ -548,7 +552,7 @@ fn pseudo_valid_knight_moves<'a>(
         BoardPositionOffset::new(-2, 1),
         BoardPositionOffset::new(-2, -1),
     ];
-    Box::new(offsets.into_iter().filter_map(move |offset| {
+    offsets.into_iter().filter_map(move |offset| {
         if let Some(destination) = position.add(offset)
             && let Ok(MovedPiece {
                 board_delta,
@@ -579,13 +583,13 @@ fn pseudo_valid_knight_moves<'a>(
         } else {
             None
         }
-    }))
+    })
 }
 
 fn pseudo_valid_bishop_moves<'a>(
     position: BoardPosition,
     board: &'a ChessBoard,
-) -> Box<dyn Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a> {
+) -> impl Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a {
     // #   #
     //  # #
     //   O
@@ -609,19 +613,14 @@ fn pseudo_valid_bishop_moves<'a>(
         BoardPositionOffset::DIAGONAL_SE,
     ];
 
-    Box::new(pseudo_valid_moves_from_directions(
-        directions.into_iter(),
-        piece,
-        position,
-        board,
-    ))
+    pseudo_valid_moves_from_directions(directions.into_iter(), piece, position, board)
 }
 
 fn pseudo_valid_rook_moves<'a>(
     position: BoardPosition,
     board: &'a ChessBoard,
     position_state: &'a PositionState,
-) -> Box<dyn Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a> {
+) -> impl Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a {
     //   #
     //   #
     // ##O##
@@ -663,27 +662,25 @@ fn pseudo_valid_rook_moves<'a>(
             (false, false)
         };
 
-    Box::new(
-        pseudo_valid_moves_from_directions(directions.into_iter(), piece, position, board)
-            // all of the proposed rook moves in this iterator will disable castling
-            // if that rook previously was unmoved (as well as the king)
-            .map(move |(board_delta, mut move_info)| {
-                match color {
-                    Color::White => {
-                        move_info.disabled_castling_white = disabled_castling;
-                    }
-                    Color::Black => {
-                        move_info.disabled_castling_black = disabled_castling;
-                    }
+    pseudo_valid_moves_from_directions(directions.into_iter(), piece, position, board)
+        // all of the proposed rook moves in this iterator will disable castling
+        // if that rook previously was unmoved (as well as the king)
+        .map(move |(board_delta, mut move_info)| {
+            match color {
+                Color::White => {
+                    move_info.disabled_castling_white = disabled_castling;
                 }
-                (board_delta, move_info)
-            }),
-    )
+                Color::Black => {
+                    move_info.disabled_castling_black = disabled_castling;
+                }
+            }
+            (board_delta, move_info)
+        })
 }
 fn pseudo_valid_queen_moves<'a>(
     position: BoardPosition,
     board: &'a ChessBoard,
-) -> Box<dyn Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a> {
+) -> impl Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a {
     // # # #
     //  ###
     // ##O##
@@ -722,7 +719,7 @@ fn pseudo_valid_king_moves<'a>(
     position: BoardPosition,
     board: &'a ChessBoard,
     position_state: &'a PositionState,
-) -> Box<dyn Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a> {
+) -> impl Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a {
     //
     //  ###
     //  #O#
@@ -1070,6 +1067,9 @@ impl ChessGame {
             state: new_position_state,
         };
 
+        // TODO: this could be a custom type ValidMoves, which only fetches one legal move (to counterexample stalemate)
+        // and then stores valid move lookups cached per piece/square, and one could incrementally just fetch valid
+        // moves per each square and not needing to get all.
         // update valid moves
         self.valid_moves.clear();
         self.valid_moves.extend(self.state.all_valid_moves());
