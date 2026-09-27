@@ -1,10 +1,10 @@
 //! A chess engine library written in rust
 
-use std::collections::HashMap;
-use std::fmt::Write;
+use std::cell::OnceCell;
+use std::collections::{HashMap, HashSet};
 use std::{array, iter};
 
-use crate::board::{BoardPosition, BoardPositionOffset, ChessBoard, DeltaChessBoard};
+use crate::board::{BoardPosition, BoardPositionOffset, ChessBoard, DeltaChessBoard, SIDE_LENGTH};
 use crate::r#move::{
     CheckEvent, ExtendedMoveInfo, MoveInfo, MovedPiece, PromotionPiece, move_piece,
 };
@@ -22,28 +22,29 @@ mod tests;
 /// Does not include manual terminations like resigning or offering/accepting draw
 pub struct ChessGame {
     /// The initial game state
-    _init_state: GameState,
+    init_state: GameState,
     /// All moves made since the initial state in chronological order
     moves: Vec<(DeltaChessBoard, ExtendedMoveInfo)>,
 
     // (FEATURE: maybe make all redundant sate cache lookups that just store queries from the init_board+init_state+moves instead)
     // --- redundant state for simpler computation ---
     game_termination: Option<GameTermination>,
-    valid_moves: HashMap<DeltaChessBoard, MoveInfo>,
 
     /// The current state of the game
     state: GameState,
+
+    valid_moves: ValidMoves,
 }
 
 /// The state of a chess game in one specific position
 #[derive(Clone)]
 pub struct GameState {
-    board: ChessBoard,
-    state: PositionState,
+    pub board: ChessBoard,
+    pub state: PositionState,
 }
 
 /// A type describing all kinds of terminations of a chess game
-#[derive(Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameTermination {
     /// Contains the player who won
     CheckMate(Color),
@@ -57,12 +58,16 @@ pub enum GameTermination {
 // TODO: refactor and look over the code in the entire codebase to follow the rule of every function
 // always staying on the same abstraction layer
 impl GameState {
-    /// Get all the unique valid moves at a certain position
+    /// Get all the unique valid moves at a certain position.
+    ///
+    /// This operation is computationally expensive, you'll likely want to use [`ChessGame::all_valid_moves`] instead
     pub fn all_valid_moves<'a>(&'a self) -> impl Iterator<Item = (DeltaChessBoard, MoveInfo)> + 'a {
         self.board.squares().flat_map(|pos| self.valid_moves(pos))
     }
 
     /// Get all the unique valid moves for a piece at a certain position, including with check rules
+    ///
+    /// This operation is computationally expensive, you'll likely want to use [`ChessGame::valid_moves`] instead
     pub fn valid_moves<'a>(
         &'a self,
         pos: BoardPosition,
@@ -71,8 +76,11 @@ impl GameState {
             .filter(|(board_delta, proposed_move)| {
                 // TODO: check if i could maybe pass the board around, and apply changes then revert them after
                 // each iteration, instead of just cloning the board
+                //
+                // also TODO: currently castling validity check is done after the board is updated, but should be before.
+                // when doing this also fix the pawn capture issue.
                 let mut board = self.board.clone();
-                board.update(&board_delta);
+                board.update(board_delta);
 
                 // validity check
                 // check the opponents next valid moves
@@ -115,7 +123,7 @@ impl GameState {
                         return false;
                     }
                 }
-                return true;
+                true
             })
     }
 
@@ -154,23 +162,123 @@ impl GameState {
     }
     /// Import a game state from a fen string (standardized compact chess position format).
     ///
-    /// This is not implemented and will panic.
-    pub fn from_fen(&self, _fen: &str) -> Option<Self> {
-        todo!()
+    /// Returns Err if the fen is in the wrong format.
+    pub fn from_fen(fen: &str) -> Result<Self, ()> {
+        let args = fen.split_whitespace().collect::<Vec<_>>();
+        let [
+            piece_placements,
+            player_at_turn,
+            castling,
+            en_passant,
+            halfmove_clock,
+            n_fullmoves,
+        ] = args.as_slice()
+        else {
+            return Err(());
+        };
+        let mut ranks = Vec::with_capacity(SIDE_LENGTH);
+        for (i, rank_str) in piece_placements.split("/").enumerate() {
+            let mut rank = Vec::with_capacity(SIDE_LENGTH);
+            // max 8 ranks
+            if i == SIDE_LENGTH {
+                return Err(());
+            }
+            for char in rank_str.chars() {
+                if let Some(n_empty_squares @ 1..=8) = char.to_digit(10) {
+                    for _ in 0..n_empty_squares {
+                        rank.push(None);
+                    }
+                } else if let Ok(piece) = ChessPiece::try_from(char) {
+                    rank.push(Some(piece));
+                } else {
+                    return Err(());
+                }
+            }
+            // must be exactly 8 squares per rank
+            if rank.len() != SIDE_LENGTH {
+                return Err(());
+            }
+
+            ranks.push(rank);
+        }
+        // must be exactly 8 ranks
+        if ranks.len() != SIDE_LENGTH {
+            return Err(());
+        }
+        let board = ChessBoard::try_from_rotated_vec(ranks)?;
+
+        if player_at_turn.len() != 1 {
+            return Err(());
+        }
+        let player_at_turn = match player_at_turn.chars().nth(0).ok_or(())? {
+            'w' => Color::White,
+            'b' => Color::Black,
+            _ => {
+                return Err(());
+            }
+        };
+
+        let (white_can_castle, black_can_castle) = if castling == &"-" {
+            ((false, false), (false, false))
+        } else {
+            // verifying the castle string is in the right format
+            if castling.chars().count() != castling.chars().collect::<HashSet<_>>().len() {
+                return Err(());
+            }
+            // make sure theyre in the right order
+            const EXPECTED_CHARS: [char; 4] = ['K', 'Q', 'k', 'q'];
+            let mut last_index = None;
+            for char in castling.chars() {
+                let index = EXPECTED_CHARS
+                    .iter()
+                    .position(|expected| *expected == char)
+                    .ok_or(())?;
+                if last_index.is_some_and(|last_index| index <= last_index) {
+                    return Err(());
+                }
+                last_index = Some(index);
+            }
+            let white_can_castle = (castling.find("Q").is_some(), castling.find("K").is_some());
+            let black_can_castle = (castling.find("q").is_some(), castling.find("k").is_some());
+            (white_can_castle, black_can_castle)
+        };
+
+        let en_passant_square = match en_passant {
+            &"-" => None,
+            en_passant if let Ok(square) = BoardPosition::from_chess_display(en_passant) => {
+                Some(square)
+            }
+            _ => {
+                return Err(());
+            }
+        };
+        let halfmove_clock = halfmove_clock.parse().map_err(|_| ())?;
+        let n_fullmoves = n_fullmoves.parse().map_err(|_| ())?;
+
+        let state = PositionState {
+            player_at_turn,
+            white_can_castle,
+            black_can_castle,
+            en_passant_square,
+            halfmove_clock,
+            n_fullmoves,
+        };
+
+        Ok(Self { board, state })
     }
     /// Convert the game state to a fen string
-    pub fn to_fen(&self) -> Result<String, std::fmt::Error> {
+    pub fn to_fen(&self) -> String {
         // board positions / ranks
         let mut ranks: [String; board::SIDE_LENGTH] = array::from_fn(|_| String::new());
-        for rank in 0..board::SIDE_LENGTH {
+        for (i, rank) in ranks.iter_mut().enumerate() {
             let mut n_empty_squares = 0;
             for x in 0..board::SIDE_LENGTH {
                 match self.board.get_square(
-                    BoardPosition::new(x as u8, ((board::SIDE_LENGTH - 1) - rank) as u8).unwrap(),
+                    BoardPosition::new(x as u8, ((board::SIDE_LENGTH - 1) - i) as u8).unwrap(),
                 ) {
                     Some(piece) => {
                         if n_empty_squares > 0 {
-                            ranks[rank as usize].push_str(&n_empty_squares.to_string());
+                            rank.push_str(&n_empty_squares.to_string());
                             n_empty_squares = 0;
                         }
                         let base = match piece.r#type {
@@ -181,7 +289,7 @@ impl GameState {
                             PieceType::Queen => 'q',
                             PieceType::King => 'k',
                         };
-                        ranks[rank as usize].push(match piece.color {
+                        rank.push(match piece.color {
                             Color::White => base.to_ascii_uppercase(),
                             Color::Black => base,
                         });
@@ -192,74 +300,70 @@ impl GameState {
                 }
             }
             if n_empty_squares > 0 {
-                ranks[rank as usize].push_str(&n_empty_squares.to_string());
+                rank.push_str(&n_empty_squares.to_string());
             }
         }
 
         let mut fen = ranks.join("/");
 
         // separator
-        write!(&mut fen, " ")?;
+        fen.push(' ');
 
         // player at turn
-        write!(
-            &mut fen,
-            "{}",
-            match self.state.player_at_turn {
-                Color::White => 'w',
-                Color::Black => 'b',
-            }
-        )?;
+        fen.push(match self.state.player_at_turn {
+            Color::White => 'w',
+            Color::Black => 'b',
+        });
 
         // separator
-        write!(&mut fen, " ")?;
+        fen.push(' ');
 
         // castling
         let mut castling_string = String::new();
         if self.state.white_can_castle.1 {
-            write!(&mut castling_string, "K")?;
+            castling_string.push('K');
         }
         if self.state.white_can_castle.0 {
-            write!(&mut castling_string, "Q")?;
+            castling_string.push('Q');
         }
         if self.state.black_can_castle.1 {
-            write!(&mut castling_string, "k")?;
+            castling_string.push('k');
         }
         if self.state.black_can_castle.0 {
-            write!(&mut castling_string, "q")?;
+            castling_string.push('q');
         }
         if castling_string.is_empty() {
-            write!(&mut fen, "-")?;
+            fen.push('-');
         } else {
-            write!(&mut fen, "{}", castling_string)?;
+            fen.push_str(&castling_string);
         }
 
         // separator
-        write!(&mut fen, " ")?;
+        fen.push(' ');
 
         //en passant
         match self.state.en_passant_square {
             Some(square) => {
-                write!(&mut fen, "{}", square.chess_display())?;
+                fen.push_str(&square.chess_display());
             }
             None => {
-                write!(&mut fen, "-")?;
+                fen.push('-');
             }
         }
 
         // separator
-        write!(&mut fen, " ")?;
+        fen.push(' ');
 
         // half move clock
-        write!(&mut fen, "{}", self.state.halfmove_clock)?;
+        fen.push_str(&self.state.halfmove_clock.to_string());
 
         // separator
-        write!(&mut fen, " ")?;
+        fen.push(' ');
 
         // n fullmoves
-        write!(&mut fen, "{}", self.state.n_fullmoves)?;
+        fen.push_str(&self.state.n_fullmoves.to_string());
 
-        Ok(fen)
+        fen
     }
 }
 
@@ -280,7 +384,7 @@ fn pseudo_valid_moves_from_directions<'a>(
                 && let Ok(MovedPiece {
                     board_delta,
                     replaced_piece,
-                }) = move_piece(&board, origin, destination)
+                }) = move_piece(board, origin, destination)
                 && replaced_piece
                     .is_none_or(|replaced_piece| replaced_piece.color == piece.color.toggled())
             {
@@ -355,7 +459,7 @@ fn pseudo_valid_pawn_moves<'a>(
         let Ok(MovedPiece {
             board_delta,
             replaced_piece: None,
-        }) = move_piece(&board, position, destination)
+        }) = move_piece(board, position, destination)
         else {
             break 'f1 None;
         };
@@ -387,7 +491,7 @@ fn pseudo_valid_pawn_moves<'a>(
             let Ok(MovedPiece {
                 board_delta,
                 replaced_piece: None,
-            }) = move_piece(&board, position, destination)
+            }) = move_piece(board, position, destination)
             else {
                 break 'f2 None;
             };
@@ -412,10 +516,8 @@ fn pseudo_valid_pawn_moves<'a>(
         }
     };
     let capture = capture_offsets.into_iter().filter_map(move |offset| {
-        let Some(destination) = position.add(offset) else {
-            return None;
-        };
-        match move_piece(&board, position, destination) {
+        let destination = position.add(offset)?;
+        match move_piece(board, position, destination) {
             Ok(MovedPiece {
                 board_delta,
                 replaced_piece: Some(replaced_piece),
@@ -557,7 +659,7 @@ fn pseudo_valid_knight_moves<'a>(
             && let Ok(MovedPiece {
                 board_delta,
                 replaced_piece,
-            }) = move_piece(&board, position, destination)
+            }) = move_piece(board, position, destination)
             && replaced_piece.is_none_or(|replaced_piece| replaced_piece.color == color.toggled())
         {
             Some((
@@ -707,12 +809,7 @@ fn pseudo_valid_queen_moves<'a>(
         BoardPositionOffset::WEST,
         BoardPositionOffset::EAST,
     ];
-    Box::new(pseudo_valid_moves_from_directions(
-        directions.into_iter(),
-        piece,
-        position,
-        board,
-    ))
+    pseudo_valid_moves_from_directions(directions.into_iter(), piece, position, board)
 }
 
 fn pseudo_valid_king_moves<'a>(
@@ -789,7 +886,7 @@ fn pseudo_valid_king_moves<'a>(
                 )
                 .unwrap();
             // empty where the king and rook used to be
-            board_delta.insert(position, None).expect("impossible");
+            board_delta.insert(position, None).unwrap();
             board_delta.insert(old_rook_position, None).unwrap();
             Some((
                 board_delta,
@@ -831,7 +928,7 @@ fn pseudo_valid_king_moves<'a>(
                     && let Ok(MovedPiece {
                         board_delta,
                         replaced_piece,
-                    }) = move_piece(&board, position, destination)
+                    }) = move_piece(board, position, destination)
                     && replaced_piece
                         .is_none_or(|replaced_piece| replaced_piece.color == color.toggled())
                 {
@@ -915,15 +1012,65 @@ impl PositionState {
             {
                 0
             } else {
-                self.halfmove_clock + 1
+                self.halfmove_clock.saturating_add(1)
             },
-            n_fullmoves: self.n_fullmoves
-                + match self.player_at_turn {
-                    Color::White => 0,
-                    Color::Black => 1,
-                },
+            n_fullmoves: self.n_fullmoves.saturating_add(match self.player_at_turn {
+                Color::White => 0,
+                Color::Black => 1,
+            }),
             player_at_turn: self.player_at_turn.toggled(),
         }
+    }
+}
+
+struct ValidMoves {
+    store: HashMap<BoardPosition, OnceCell<Vec<(DeltaChessBoard, MoveInfo)>>>,
+}
+
+impl ValidMoves {
+    /// Returns true as the second return value if it found at least one valid move. If it's empty (no valid moves exist),
+    /// the second return value will be false
+    fn new(state: &GameState) -> (ValidMoves, bool) {
+        let store = HashMap::from_iter(state.board.squares().scan(false, move |found, pos| {
+            if *found {
+                return Some((pos, OnceCell::new()));
+            }
+            let valid_moves = state.valid_moves(pos).collect::<Vec<_>>();
+            if !valid_moves.is_empty() {
+                *found = true;
+            }
+            Some((pos, OnceCell::from(valid_moves)))
+        }));
+
+        let valid_move_exists = store
+            .values()
+            .any(|pos| pos.get().is_some_and(|moves| !moves.is_empty()));
+        (Self { store }, valid_move_exists)
+    }
+
+    /// Get the valid moves of a board position/square.
+    fn get_valid_moves(
+        &self,
+        state: &GameState,
+        pos: BoardPosition,
+    ) -> &Vec<(DeltaChessBoard, MoveInfo)> {
+        self.store
+            .get(&pos)
+            .unwrap()
+            .get_or_init(|| Vec::from_iter(state.valid_moves(pos)))
+    }
+
+    /// Get an exact move. Will return None if the move is not valid
+    fn get_move(
+        &self,
+        state: &GameState,
+        from: BoardPosition,
+        to: BoardPosition,
+        promotion: Option<PromotionPiece>,
+    ) -> Option<&(DeltaChessBoard, MoveInfo)> {
+        self.get_valid_moves(state, from)
+            .iter()
+            .find(|(_, move_info)| move_info.to == to && move_info.promotion == promotion)
     }
 }
 
@@ -934,15 +1081,20 @@ impl ChessGame {
             board: ChessBoard::start_position(),
             state: PositionState::default(),
         };
-        let valid_moves = state.all_valid_moves().collect();
+        // the state is default position, so there will be valid moves
+        let valid_moves = ValidMoves::new(&state).0;
         Self {
-            _init_state: state.clone(),
+            init_state: state.clone(),
             moves: Vec::new(),
-
             game_termination: None,
-            valid_moves,
             state,
+            valid_moves,
         }
+    }
+
+    /// Get the game state
+    pub fn state(&self) -> &GameState {
+        &self.state
     }
 
     /// Get the chess board
@@ -951,23 +1103,40 @@ impl ChessGame {
     }
 
     /// Get the position state
-    pub fn state(&self) -> &PositionState {
+    pub fn position_state(&self) -> &PositionState {
         &self.state.state
     }
 
     /// Get whether the chess game is terminated
-    pub fn termination(&self) -> &Option<GameTermination> {
-        &self.game_termination
+    pub fn termination(&self) -> Option<GameTermination> {
+        self.game_termination
     }
 
+    /// Get the game state at the initial moment the game started
+    pub fn init_state(&self) -> &GameState {
+        &self.init_state
+    }
+
+    /// Get all previous moves in chronological order
+    pub fn moves(&self) -> &Vec<(DeltaChessBoard, ExtendedMoveInfo)> {
+        &self.moves
+    }
+
+    /// Get the valid moves for a specific board position
+    pub fn valid_moves(&self, position: BoardPosition) -> &Vec<(DeltaChessBoard, MoveInfo)> {
+        self.valid_moves.get_valid_moves(&self.state, position)
+    }
     /// Get all valid moves
-    pub fn valid_moves(&self) -> &HashMap<DeltaChessBoard, MoveInfo> {
-        &self.valid_moves
+    pub fn all_valid_moves(&self) -> impl Iterator<Item = &(DeltaChessBoard, MoveInfo)> {
+        self.state
+            .board
+            .squares()
+            .flat_map(|square| self.valid_moves.get_valid_moves(&self.state, square))
     }
 
     /// Import a chess game from a game state
     pub fn from_game_state(state: GameState) -> Self {
-        let valid_moves: HashMap<DeltaChessBoard, _> = state.all_valid_moves().collect();
+        let (valid_moves, valid_move_exists) = ValidMoves::new(&state);
         // check for check
         let check_state = GameState {
             board: state.board.clone(),
@@ -989,7 +1158,7 @@ impl ChessGame {
             })
             .is_some(); // update state based on how the move changed it
 
-        let stalemate = if valid_moves.is_empty() { true } else { false };
+        let stalemate = !valid_move_exists;
         let game_termination = if stalemate && is_check {
             Some(GameTermination::CheckMate(
                 state.state.player_at_turn.toggled(),
@@ -1002,12 +1171,11 @@ impl ChessGame {
             None
         };
         Self {
-            _init_state: state.clone(),
+            init_state: state.clone(),
             moves: Vec::new(),
-
             game_termination,
-            valid_moves,
             state,
+            valid_moves,
         }
     }
 
@@ -1025,15 +1193,18 @@ impl ChessGame {
     /// Will otherwise return the information of the move, and whether the game terminated after the move
     pub fn r#move(
         &mut self,
-        r#move: DeltaChessBoard,
+        from: BoardPosition,
+        to: BoardPosition,
+        promotion: Option<PromotionPiece>,
     ) -> Result<(ExtendedMoveInfo, Option<GameTermination>), MoveError> {
         if self.game_termination.is_some() {
             return Err(MoveError::GameAlreadyEnded);
         }
-        let intermediate_move_info = self
+        let (r#move, intermediate_move_info) = self
             .valid_moves
-            .remove(&r#move)
-            .ok_or(MoveError::InvalidMove)?;
+            .get_move(&self.state, from, to, promotion)
+            .ok_or(MoveError::InvalidMove)?
+            .to_owned();
         let player = intermediate_move_info.piece.color;
 
         // update board and state
@@ -1067,19 +1238,11 @@ impl ChessGame {
             state: new_position_state,
         };
 
-        // TODO: this could be a custom type ValidMoves, which only fetches one legal move (to counterexample stalemate)
-        // and then stores valid move lookups cached per piece/square, and one could incrementally just fetch valid
-        // moves per each square and not needing to get all.
-        // update valid moves
-        self.valid_moves.clear();
-        self.valid_moves.extend(self.state.all_valid_moves());
+        let (valid_moves, valid_moves_exist) = ValidMoves::new(&self.state);
+        self.valid_moves = valid_moves;
 
         // check for stalemate/checkmate and get ExtendedMoveInfo
-        let stalemate = if self.valid_moves.is_empty() {
-            true
-        } else {
-            false
-        };
+        let stalemate = !valid_moves_exist;
         let new_move_info = ExtendedMoveInfo::new(
             intermediate_move_info,
             match (is_check, stalemate) {
@@ -1100,13 +1263,19 @@ impl ChessGame {
         } else {
             None
         };
-        self.game_termination = game_termination.clone();
+        self.game_termination = game_termination;
         Ok((new_move_info, game_termination))
     }
 }
 
 /// An error type for [`ChessGame::move`].
+#[derive(Debug, Clone, Copy)]
 pub enum MoveError {
     InvalidMove,
     GameAlreadyEnded,
+}
+impl Default for ChessGame {
+    fn default() -> Self {
+        Self::new()
+    }
 }

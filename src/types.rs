@@ -61,3 +61,63 @@ impl Display for ChessPiece {
         )
     }
 }
+
+impl TryFrom<char> for ChessPiece {
+    type Error = ();
+
+    fn try_from(value: char) -> Result<Self, Self::Error> {
+        Ok(match value {
+            'P' => Self {
+                color: Color::White,
+                r#type: PieceType::Pawn,
+            },
+            'p' => Self {
+                color: Color::Black,
+                r#type: PieceType::Pawn,
+            },
+            'N' => Self {
+                color: Color::White,
+                r#type: PieceType::Knight,
+            },
+            'n' => Self {
+                color: Color::Black,
+                r#type: PieceType::Knight,
+            },
+            'B' => Self {
+                color: Color::White,
+                r#type: PieceType::Bishop,
+            },
+            'b' => Self {
+                color: Color::Black,
+                r#type: PieceType::Bishop,
+            },
+            'R' => Self {
+                color: Color::White,
+                r#type: PieceType::Rook,
+            },
+            'r' => Self {
+                color: Color::Black,
+                r#type: PieceType::Rook,
+            },
+            'Q' => Self {
+                color: Color::White,
+                r#type: PieceType::Queen,
+            },
+            'q' => Self {
+                color: Color::Black,
+                r#type: PieceType::Queen,
+            },
+            'K' => Self {
+                color: Color::White,
+                r#type: PieceType::King,
+            },
+            'k' => Self {
+                color: Color::Black,
+                r#type: PieceType::King,
+            },
+            _ => {
+                return Err(());
+            }
+        })
+    }
+}

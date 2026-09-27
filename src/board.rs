@@ -16,7 +16,7 @@ pub const SIDE_LENGTH: usize = 8;
 pub struct ChessBoard([[ChessBoardSquare; SIDE_LENGTH]; SIDE_LENGTH]);
 
 /// A zero-indexed position on the chess board
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub struct BoardPosition {
     x: u8,
     y: u8,
@@ -59,7 +59,7 @@ impl BoardPosition {
     }
     /// Get the chess representation of a coordinate.
     ///
-    /// For example (3,7) yields "d8", and (0, 1) yields "a2"
+    /// For example (3,7) yields "d8", and (0,1) yields "a2"
     pub fn chess_display(&self) -> String {
         let char1 = match self.x {
             0 => 'a',
@@ -74,6 +74,40 @@ impl BoardPosition {
         };
         let char2 = (self.y + 1).to_string();
         format!("{char1}{char2}")
+    }
+
+    /// Create a coordinate from a readable chess representation.
+    ///
+    /// For example "d8" yields (3,7), and "a2" yields (0,1)
+    pub fn from_chess_display(string: &str) -> Result<Self, ()> {
+        if string.len() != 2 {
+            return Err(());
+        }
+        let x = match string.chars().nth(0).ok_or(())?.to_ascii_lowercase() {
+            'a' => 0,
+            'b' => 1,
+            'c' => 2,
+            'd' => 3,
+            'e' => 4,
+            'f' => 5,
+            'g' => 6,
+            'h' => 7,
+            _ => {
+                return Err(());
+            }
+        };
+        let y @ 0..=7 = string
+            .chars()
+            .nth(1)
+            .ok_or(())?
+            .to_digit(10)
+            .ok_or(())?
+            .checked_sub(1)
+            .ok_or(())? as u8
+        else {
+            return Err(());
+        };
+        Ok(Self { x, y })
     }
 
     /// Add a board offset to the board position, returning None if it lands out of bounds
@@ -241,6 +275,20 @@ impl ChessBoard {
         Self(rotated)
     }
 
+    /// Create a chessboard from a rotated Vec<Vec<ChessBoardSquare>> of size 8x8
+    ///
+    /// Read [`Self::from_rotated`] for more info on rotation.
+    pub fn try_from_rotated_vec(vec: Vec<Vec<ChessBoardSquare>>) -> Result<Self, ()> {
+        if vec.len() != SIDE_LENGTH {
+            return Err(());
+        }
+        let mut rows = Vec::with_capacity(SIDE_LENGTH);
+        for row in vec {
+            rows.push(row.try_into().map_err(|_| ())?);
+        }
+        Ok(Self::from_rotated(rows.try_into().map_err(|_| ())?))
+    }
+
     /// Get the inner array representation of the chess board
     pub fn inner(&self) -> &[[ChessBoardSquare; SIDE_LENGTH]; SIDE_LENGTH] {
         &self.0
@@ -252,7 +300,7 @@ impl ChessBoard {
     }
 
     /// Get all the possible board positions
-    pub fn squares(&self) -> impl Iterator<Item = BoardPosition> {
+    pub fn squares(&self) -> impl DoubleEndedIterator<Item = BoardPosition> {
         (0..SIDE_LENGTH).flat_map(|x| {
             (0..SIDE_LENGTH).map(move |y| BoardPosition::new(x as u8, y as u8).unwrap())
         })
@@ -296,9 +344,7 @@ impl DeltaChessBoard {
     ///
     /// Returns Err(()) if the [`DeltaChessBoard`] is full
     pub fn insert(&mut self, position: BoardPosition, square: ChessBoardSquare) -> Result<(), ()> {
-        match (&mut self.store[..self.len as usize])
-            .binary_search_by_key(&position, |(pos, _)| *pos)
-        {
+        match self.store[..self.len as usize].binary_search_by_key(&position, |(pos, _)| *pos) {
             // if the position already exists, overwrite it. this doesn't increase the length
             Ok(square_index) => {
                 self.store[square_index].1 = square;
@@ -318,9 +364,13 @@ impl DeltaChessBoard {
         Ok(())
     }
 
+    // /// Get the inverse [`DeltaChessBoard`], meaning after applying this [`DeltaChessBoard`] to the [`ChessBoard`],
+    // /// applying the one you get from this function to the same [`ChessBoard`] will reset it back to its original state
+    // pub fn inverse(&self, board: &ChessBoard) -> Self {}
+
     pub fn iter<'a>(&'a self) -> DeltaChessBoardIter<'a> {
         DeltaChessBoardIter {
-            delta_board: &self,
+            delta_board: self,
             current_index: 0,
         }
     }
@@ -354,6 +404,11 @@ impl<'a> Iterator for DeltaChessBoardIterMut<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
+    }
+}
+impl Default for DeltaChessBoard {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -468,7 +523,7 @@ impl Display for ChessBoard {
                     }
                 )?;
             }
-            write!(f, "\n")?;
+            writeln!(f)?;
         }
         Ok(())
     }
@@ -480,11 +535,6 @@ impl From<BoardPosition> for BoardPositionOffset {
             dx: value.x as i8,
             dy: value.y as i8,
         }
-    }
-}
-impl Default for BoardPosition {
-    fn default() -> Self {
-        Self { x: 0, y: 0 }
     }
 }
 

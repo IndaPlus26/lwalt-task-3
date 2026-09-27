@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    ChessGame, GameState, PositionState,
+    ChessGame, GameState, GameTermination, PositionState,
     board::{BoardPosition, ChessBoard, DeltaChessBoard},
     r#move::{MoveInfo, PromotionPiece},
     types::{ChessPiece, Color, PieceType},
@@ -124,7 +124,10 @@ fn valid_moves_capture() {
         knight_advance_1,
         knight_advance_2,
     ]);
-    assert_eq!(game.valid_moves, expected_valid_moves);
+    assert_eq!(
+        game.all_valid_moves().cloned().collect::<HashMap<_, _>>(),
+        expected_valid_moves
+    );
 
     // if it were black's turn
     let state = PositionState {
@@ -158,7 +161,10 @@ fn valid_moves_capture() {
         (delta_board, move_info)
     };
     let expected_valid_moves = HashMap::from([bishop_capture]);
-    assert_eq!(game.valid_moves, expected_valid_moves);
+    assert_eq!(
+        game.all_valid_moves().cloned().collect::<HashMap<_, _>>(),
+        expected_valid_moves
+    );
 }
 
 #[test]
@@ -176,7 +182,7 @@ fn valid_moves_castling() {
     ]);
     let state = PositionState::default();
     let game_state = GameState { state, board };
-    let mut game = ChessGame::from_game_state(game_state);
+    let game = ChessGame::from_game_state(game_state);
     let white_king = ChessPiece {
         color: Color::White,
         r#type: PieceType::King,
@@ -239,15 +245,18 @@ fn valid_moves_castling() {
         };
         (delta_board, move_info)
     };
+
+    let mut valid_moves = game.all_valid_moves().cloned().collect::<HashMap<_, _>>();
+
     // contains left castling
     assert!(
-        game.valid_moves
+        valid_moves
             .remove(&castling_left.0)
             .is_some_and(|move_info| move_info == castling_left.1)
     );
     // contains right castling
     assert!(
-        game.valid_moves
+        valid_moves
             .remove(&castling_right.0)
             .is_some_and(|move_info| move_info == castling_right.1)
     );
@@ -313,7 +322,7 @@ fn promotion() {
     ]);
     let state = PositionState::default();
     let game_state = GameState { state, board };
-    let mut game = ChessGame::from_game_state(game_state);
+    let game = ChessGame::from_game_state(game_state);
     let white_pawn = ChessPiece {
         color: Color::White,
         r#type: PieceType::Pawn,
@@ -323,7 +332,8 @@ fn promotion() {
         r#type: PieceType::Rook,
     };
 
-    assert_eq!(game.valid_moves.len(), 4);
+    let mut valid_moves = game.all_valid_moves().cloned().collect::<HashMap<_, _>>();
+    assert_eq!(valid_moves.len(), 4);
 
     for (delta_board, move_info) in [
         PromotionPiece::Knight,
@@ -361,7 +371,7 @@ fn promotion() {
         (delta_board, move_info)
     }) {
         assert!(
-            game.valid_moves
+            valid_moves
                 .remove(&delta_board)
                 .is_some_and(|mov_info| mov_info == move_info)
         );
@@ -386,7 +396,7 @@ fn en_passant() {
         ..Default::default()
     };
     let game_state = GameState { state, board };
-    let mut game = ChessGame::from_game_state(game_state);
+    let game = ChessGame::from_game_state(game_state);
     let white_pawn = ChessPiece {
         color: Color::White,
         r#type: PieceType::Pawn,
@@ -420,9 +430,37 @@ fn en_passant() {
 
         (delta_board, move_info)
     };
+    let mut valid_moves = game.all_valid_moves().cloned().collect::<HashMap<_, _>>();
     assert!(
-        game.valid_moves
+        valid_moves
             .remove(&en_passant.0)
             .is_some_and(|mov_info| mov_info == en_passant.1)
     );
+}
+
+#[test]
+fn game_test() {
+    let c = BoardPosition::from_chess_display;
+    let mut game = ChessGame::new();
+    game.r#move(c("f2").unwrap(), c("f4").unwrap(), None)
+        .unwrap();
+    game.r#move(c("e7").unwrap(), c("e6").unwrap(), None)
+        .unwrap();
+    game.r#move(c("g2").unwrap(), c("g4").unwrap(), None)
+        .unwrap();
+    assert_eq!(
+        game.r#move(c("d8").unwrap(), c("h4").unwrap(), None)
+            .unwrap()
+            .1,
+        Some(GameTermination::CheckMate(Color::Black))
+    );
+}
+
+#[test]
+fn to_from_fen() {
+    let random_fen = "1r6/5pp1/R1R4p/1r1pP3/2pkQPP1/7P/1P6/2K5 w - - 0 41";
+    let state = GameState::from_fen(random_fen).unwrap();
+    let same_fen = state.to_fen();
+
+    assert_eq!(random_fen, same_fen);
 }
